@@ -134,6 +134,12 @@ export class SidebarMenuComponent extends BaseMenuComponent implements OnInit, O
         translationKey: 'Analytics',
         hasPermissions: 'can_view_analytics,!can_view_analytics_tab',
       },
+      {
+        routerLink: 'surveys',
+        icon: 'fa-clipboard-list',
+        translationKey: 'Surveys',
+        hasPermissions: 'can_view_reports'
+      },
     ];
   }
 
