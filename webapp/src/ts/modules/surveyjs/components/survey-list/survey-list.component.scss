@@ -1,0 +1,23 @@
+.survey-list {
+  list-style: none;
+  padding: 0;
+
+  .survey-list-item {
+    padding: 15px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    &:hover {
+      background: #f9f9f9;
+    }
+  }
+
+  .survey-title {
+    font-weight: bold;
+    font-size: 1.1em;
+  }
+
+  .survey-meta {
+    font-size: 0.8em;
+    color: #666;
+  }
+}
