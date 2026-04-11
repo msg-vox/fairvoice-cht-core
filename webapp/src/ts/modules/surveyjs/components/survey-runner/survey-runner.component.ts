@@ -9,8 +9,6 @@ import { SurveyFormService } from '../../services/survey-form.service';
 import { SurveySubmissionService } from '../../services/survey-submission.service';
 import { GlobalActions } from '@mm-actions/global';
 
-import 'survey-core/defaultV2.min.css';
-
 @Component({
   standalone: true,
   selector: 'app-survey-runner',
