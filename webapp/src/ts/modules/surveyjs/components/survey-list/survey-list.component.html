@@ -1,18 +1,22 @@
 <mm-tool-bar title="Surveys"></mm-tool-bar>
 
-<div class="survey-list-container">
-  <div *ngIf="loading">Loading available surveys...</div>
+<div class="inner">
+  <div class="col-sm-12 page surveys scrolling">
+    <div class="survey-list-container">
+      <div *ngIf="loading">Loading available surveys...</div>
 
-  <div *ngIf="!loading && forms.length === 0" class="empty-state">
-    <p>No surveys available.</p>
+      <div *ngIf="!loading && forms.length === 0" class="empty-state">
+        <p>No surveys available.</p>
+      </div>
+
+      <ul *ngIf="!loading && forms.length > 0" class="survey-list">
+        <li *ngFor="let form of forms"
+            class="survey-list-item"
+            (click)="openSurvey(form.form_id)">
+          <div class="survey-title">{{ form.title }}</div>
+          <div class="survey-meta">v{{ form.version }}</div>
+        </li>
+      </ul>
+    </div>
   </div>
-
-  <ul *ngIf="!loading && forms.length > 0" class="survey-list">
-    <li *ngFor="let form of forms"
-        class="survey-list-item"
-        (click)="openSurvey(form.form_id)">
-      <div class="survey-title">{{ form.title }}</div>
-      <div class="survey-meta">v{{ form.version }}</div>
-    </li>
-  </ul>
 </div>

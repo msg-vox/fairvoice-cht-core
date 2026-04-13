@@ -7,6 +7,7 @@ export const routes: Routes = [
   {
     path: 'surveys',
     canActivate: [AppRouteGuardProvider],
+    data: { tab: 'surveys' },
     children: [
       { path: '', component: SurveyListComponent },
       { path: ':formId', component: SurveyRunnerComponent },

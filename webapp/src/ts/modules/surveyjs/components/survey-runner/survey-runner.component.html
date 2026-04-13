@@ -1,19 +1,23 @@
 <mm-tool-bar [title]="formTitle || 'Survey'"></mm-tool-bar>
 
-<div class="survey-runner-container">
-  <div *ngIf="loading" class="loading-spinner">
-    <p>Loading form...</p>
-  </div>
+<div class="inner">
+  <div class="col-sm-12 page surveys scrolling">
+    <div class="survey-runner-container">
+      <div *ngIf="loading" class="loading-spinner">
+        <p>Loading form...</p>
+      </div>
 
-  <div *ngIf="error" class="error-message">
-    <p>{{ error }}</p>
-  </div>
+      <div *ngIf="error" class="error-message">
+        <p>{{ error }}</p>
+      </div>
 
-  <div *ngIf="submitted" class="success-message">
-    <p>✓ Survey submitted successfully. Redirecting...</p>
-  </div>
+      <div *ngIf="submitted" class="success-message">
+        <p>✓ Survey submitted successfully. Redirecting...</p>
+      </div>
 
-  <survey *ngIf="surveyModel && !loading && !error && !submitted"
-          [model]="surveyModel">
-  </survey>
+      <survey *ngIf="surveyModel && !loading && !error && !submitted"
+              [model]="surveyModel">
+      </survey>
+    </div>
+  </div>
 </div>

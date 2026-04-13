@@ -39,6 +39,18 @@ body {
     &.reports .tool-bar {
       background-color: @reports-color;
     }
+    &.surveys .tool-bar {
+      background-color: @surveys-color;
+
+      .ellipsis-title,
+      .app-menu-button .mat-icon[fonticon="fa-bars"]:before {
+        color: @text-inverse-color;
+      }
+
+      .navigation .mat-icon-back path {
+        fill: @text-inverse-color;
+      }
+    }
     &.analytics .tool-bar {
       background-color: @analytics-color;
     }
@@ -94,6 +106,7 @@ body {
     &.about,
     &.testing,
     &.error,
+    &.surveys,
     &.privacy-policy {
       .page {
         padding-left: calc(@tab-navbar-size + 15px);
