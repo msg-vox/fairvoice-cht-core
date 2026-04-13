@@ -1,0 +1,92 @@
+{
+  "_id": "surveyjs-form:feasibility_test",
+  "type": "surveyjs_form",
+  "form_id": "feasibility_test",
+  "title": "SurveyJS in CHT feasibility test",
+  "version": "1.0.0",
+  "definition": {
+
+    "title": "SurveyJS in CHT feasibility test",
+    "description": "A quick survey to test the feasibility of running SurveyJS as an app in CHT",
+    "pages": [
+      {
+        "name": "page1",
+        "title": "Personal Information",
+        "description": "Let us get to know you, we promise not to share your data with bad people",
+        "elements": [
+          {
+            "type": "text",
+            "name": "question1",
+            "title": "What is your telephone number?",
+            "inputType": "tel"
+          },
+          {
+            "type": "text",
+            "name": "question2",
+            "title": "What is your date of birth?",
+            "inputType": "date"
+          }
+        ]
+      },
+      {
+        "name": "page2",
+        "title": "Finances",
+        "description": "We'd like to know about your financial position",
+        "elements": [
+          {
+            "type": "tagbox",
+            "name": "question_currencies",
+            "title": "What currencies do you normally purchase products in?",
+            "choices": [
+              {
+                "value": "pounds",
+                "text": "Pounds Sterling"
+              },
+              {
+                "value": "dollars",
+                "text": "US Dollar"
+              },
+              {
+                "value": "yuans",
+                "text": "Chinese Yuan"
+              },
+              {
+                "value": "euros",
+                "text": "European Euro"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "name": "question_pounds",
+            "visibleIf": "{question_currencies} contains 'pounds'",
+            "title": "How many £s do you spend per month?",
+            "inputType": "number"
+          },
+          {
+            "type": "text",
+            "name": "question_dollars",
+            "visibleIf": "{question_currencies} contains 'dollars'",
+            "title": "How many $s do you spend per month?",
+            "inputType": "number"
+          },
+          {
+            "type": "text",
+            "name": "question_yuans",
+            "visibleIf": "{question_currencies} contains 'yuans'",
+            "title": "How many ¥ do you spend per month?",
+            "inputType": "number"
+          },
+          {
+            "type": "text",
+            "name": "question_euros",
+            "visibleIf": "{question_currencies} contains 'euros'",
+            "title": "How many €s do you spend per month?",
+            "inputType": "number"
+          }
+        ]
+      }
+    ],
+    "headerView": "advanced"
+  }
+}
