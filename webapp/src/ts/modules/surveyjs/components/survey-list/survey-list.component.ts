@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { Store } from '@ngrx/store';
 import { TranslateModule } from '@ngx-translate/core';
+import { ToolBarComponent } from '@mm-components/tool-bar/tool-bar.component';
 
 import { SurveyFormService, SurveyFormDefinition } from '../../services/survey-form.service';
 import { GlobalActions } from '@mm-actions/global';
@@ -12,7 +13,7 @@ import { GlobalActions } from '@mm-actions/global';
   selector: 'app-survey-list',
   templateUrl: './survey-list.component.html',
   styleUrls: ['./survey-list.component.scss'],
-  imports: [CommonModule, TranslateModule]
+  imports: [CommonModule, TranslateModule, ToolBarComponent]
 })
 export class SurveyListComponent implements OnInit {
   forms: SurveyFormDefinition[] = [];

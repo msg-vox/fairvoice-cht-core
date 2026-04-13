@@ -4,6 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { Model } from 'survey-core';
 import { SurveyModule } from 'survey-angular-ui';
 import { Store } from '@ngrx/store';
+import { ToolBarComponent } from '@mm-components/tool-bar/tool-bar.component';
 
 import { SurveyFormService } from '../../services/survey-form.service';
 import { SurveySubmissionService } from '../../services/survey-submission.service';
@@ -14,11 +15,12 @@ import { GlobalActions } from '@mm-actions/global';
   selector: 'app-survey-runner',
   templateUrl: './survey-runner.component.html',
   styleUrls: ['./survey-runner.component.scss'],
-  imports: [CommonModule, SurveyModule]
+  imports: [CommonModule, SurveyModule, ToolBarComponent]
 })
 export class SurveyRunnerComponent implements OnInit {
   surveyModel: Model | null = null;
   formId: string = '';
+  formTitle: string = '';
   loading: boolean = true;
   error: string | null = null;
   submitted: boolean = false;
@@ -40,6 +42,7 @@ export class SurveyRunnerComponent implements OnInit {
 
     try {
       const formDef = await this.surveyFormService.getFormDefinition(this.formId);
+      this.formTitle = formDef.title;
       this.surveyModel = new Model(formDef.definition);
       this.surveyModel.onComplete.add(sender => this.handleSubmission(sender.data));
       this.loading = false;
