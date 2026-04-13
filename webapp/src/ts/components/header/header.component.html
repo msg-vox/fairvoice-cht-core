@@ -33,6 +33,12 @@
               <span>{{'Reports' | translate}}</span>
             </a>
           </li>
+          <li role="presentation" mmAuth="can_view_reports">
+            <a role="menuitem" tabindex="-1" routerLink="surveys">
+              <i class="fa fa-fw fa-clipboard"></i>
+              <span>{{'Surveys' | translate}}</span>
+            </a>
+          </li>
           <li role="presentation" mmAuth="can_view_contacts,!can_view_contacts_tab">
             <a role="menuitem" tabindex="-1" routerLink="contacts">
               <i class="fa fa-fw fa-user"></i>

@@ -136,7 +136,7 @@ export class SidebarMenuComponent extends BaseMenuComponent implements OnInit, O
       },
       {
         routerLink: 'surveys',
-        icon: 'fa-clipboard-list',
+        icon: 'fa-clipboard',
         translationKey: 'Surveys',
         hasPermissions: 'can_view_reports'
       },

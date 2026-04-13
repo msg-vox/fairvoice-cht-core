@@ -12,6 +12,15 @@ export class HeaderTabsService {
 
   private readonly tabs: HeaderTab[] = [
     {
+      name: 'surveys',
+      route: 'surveys',
+      defaultIcon: 'fa-clipboard',
+      translation: 'Surveys',
+      permissions: [],
+      icon: undefined,
+      resourceIcon: undefined,
+    },
+    {
       name: 'messages',
       route: 'messages',
       defaultIcon: 'fa-envelope',
@@ -56,6 +65,15 @@ export class HeaderTabsService {
       defaultIcon: 'fa-bar-chart-o',
       translation: 'Analytics',
       permissions: ['can_view_analytics', 'can_view_analytics_tab'],
+      icon: undefined,
+      resourceIcon: undefined,
+    },
+    {
+      name: 'surveys',
+      route: 'surveys',
+      defaultIcon: 'fa-clipboard',
+      translation: 'Surveys',
+      permissions: ['can_view_reports'],
       icon: undefined,
       resourceIcon: undefined,
     }
