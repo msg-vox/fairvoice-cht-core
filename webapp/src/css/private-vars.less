@@ -3,34 +3,50 @@
 * Don't import this file. This is only for "variable.less" usage.
 * Don't use these variables. The variable names aren't descriptive enough.
 * Instead, use the variables from "variable.less".
+*
+* Colour palette based on the Fairtrade Brand Guidelines (colours.pdf):
+* Primary:   Sky Blue #0FC0FC, Leaf Green #D4FF47
+* Secondary: Misty Sky #DADADA, Rainfall #9CA399, Rich Black #1E1E1E,
+*            Night Sky #001B6E, Eggplant #7B1DAB, Flower #FF4571,
+*            Tangerine #FF8000, Mint #09FBD3
+* Dark shades of the brand colours are used where white text must remain
+* readable (WCAG AA >= 4.5:1), e.g. badges, buttons and state labels.
 */
+
+/* neutrals - Fairtrade Misty Sky, Rainfall and Rich Black */
 @white: #FFFFFF;
-@gray-ultra-light: #F2F2F2;
-@gray-ultra-lighter: #F8F8F8;
-@gray-light: #E0E0E0;
-@gray-medium: #A0A0A0;
-@gray-medium-dark: #BDBEBF;
-@gray-dark: #777777;
-@grey-darker: #545454;
-@gray-ultra-dark: #333333;
-@gray-ultra-darker: #262626;
-@gray-disabled: #999999;
-@silver-gray:#A7A9AC;
+@gray-ultra-light: #F0F1F0;
+@gray-ultra-lighter: #F5F6F5;
+@gray-light: #DADADA;
+@gray-medium: #9CA399;
+@gray-medium-dark: #C4C8C2;
+@gray-dark: #6D726B;
+@grey-darker: #464945;
+@gray-ultra-dark: #1E1E1E;
+@gray-ultra-darker: #141414;
+@gray-disabled: #9CA399;
+@silver-gray:#9CA399;
 @black: #000000;
-@medium-black: #1A1A1A;
-@blue: #63A2C6;
-@periwinkle: #7193EE;
-@yellow: #E9AA22;
-@pink: #F47B63;
-@teal: #76B0B0;
-@blue-highlight: #EFF5F9;
-@periwinkle-highlight: #F0F4FD;
-@yellow-highlight: #FCF6E7;
-@pink-highlight: #FDF1EF;
-@teal-highlight: #E4EFEF;
-@red: #E33030;
-@yellow-dark: #C78330;
-@teal-dark: #218E7F;
-@blue-dark: #007AC0;
-@blue-ultra-dark: #23527C;
-@green: #A0BA62;
+@medium-black: #1E1E1E;
+
+/* Fairtrade brand colours */
+@blue: #0FC0FC;
+@periwinkle: #7B1DAB;
+@yellow: #FF8000;
+@pink: #FF4571;
+@teal: #09FBD3;
+
+/* light tints of the brand colours - highlight backgrounds */
+@blue-highlight: #E7F9FF;
+@periwinkle-highlight: #F2E8F7;
+@yellow-highlight: #FFF2E6;
+@pink-highlight: #FFECF1;
+@teal-highlight: #E6FFFB;
+
+/* dark shades of the brand colours - readable with white and on white */
+@red: #CC375A;
+@yellow-dark: #B25A00;
+@teal-dark: #047E6A;
+@blue-dark: #001B6E;
+@blue-ultra-dark: #001452;
+@green: #5F7320;
