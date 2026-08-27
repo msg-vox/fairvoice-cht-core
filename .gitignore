@@ -63,3 +63,5 @@ user-password-change.csv
 .envrc
 release-notes.md
 /scripts/build/helm/values.yaml
+# temporary dev docs
+brand_pdfs/
