@@ -269,6 +269,7 @@ const redirectToApp = async ({ req, res, sessionCookie, userCtx }) => {
   cookie.setSession(res, sessionCookie);
   setUserCtxCookie(res, userCtx);
   cookie.clearCookie(res, 'login');
+  cookie.clearOidcFreshLogin(res);
   setUserLocale(req, res);
   return getRedirectUrl(userCtx, req.body.redirect);
 };
@@ -476,6 +477,9 @@ module.exports = {
   renderPasswordReset,
 
   get: (req, res, next) => {
+    if (req.query?.explicit_logout === '1') {
+      cookie.setOidcFreshLogin(res);
+    }
     return renderLogin(req)
       .then(body => {
         res.setHeader(
@@ -574,13 +578,16 @@ module.exports = {
     }
   },
   oidcLogin: async (req, res) => {
+    const transactionCookie = cookie.get(req, 'oidc_transaction');
+    cookie.clearOidcTransaction(res);
     const limited = await rateLimitService.isLimited(req);
     if (limited) {
       return serverUtils.rateLimited(req, res);
     }
     try {
+      const transaction = await sso.parseTransaction(transactionCookie);
       const currentUrl =  new URL(`${getAppUrl()}${req.originalUrl}`);
-      const { username, locale } = await sso.getIdToken(currentUrl);
+      const { username, locale } = await sso.getIdToken(currentUrl, transaction);
       const sessionCookie = await sso.getCookie(username);
       req.body = { locale };
 
@@ -604,8 +611,14 @@ module.exports = {
     }
 
     try {
+      const requireFreshAuth = cookie.get(req, 'oidc_fresh') !== undefined;
+      if (requireFreshAuth) {
+        cookie.clearOidcFreshLogin(res);
+      }
+      const transaction = await sso.buildTransaction(requireFreshAuth);
       const redirectUrl = new URL(`${getAppUrl()}/${environment.db}/login/oidc`);
-      const authUrl = await sso.getAuthorizationUrl(redirectUrl.toString());
+      const authUrl = await sso.getAuthorizationUrl(redirectUrl.toString(), transaction);
+      cookie.setOidcTransaction(res, transaction.cookieValue);
       res.status(302).send(authUrl.href);
     } catch (e) {
       logger.error('Error getting authorization redirect url for SSO: %o', e);

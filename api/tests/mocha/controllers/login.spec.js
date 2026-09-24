@@ -164,6 +164,20 @@ describe('login controller', () => {
   });
 
   describe('get', () => {
+    it('sets a fresh-login cookie only for an explicit logout marker', async () => {
+      sinon.stub(translations, 'getEnabledLocales').resolves([]);
+      sinon.stub(branding, 'get').resolves(DEFAULT_BRANDING);
+      sinon.stub(template, 'getTemplate').resolves(() => 'LOGIN PAGE');
+      sinon.stub(config, 'getTranslations').returns({});
+      const setCookie = sinon.stub(res, 'cookie');
+      req.query.explicit_logout = '1';
+
+      await controller.get(req, res);
+
+      chai.expect(setCookie.calledOnce).to.be.true;
+      chai.expect(setCookie.firstCall.args[0]).to.equal('oidc_fresh');
+    });
+
     it('send login page', () => {
       sinon.stub(translations, 'getEnabledLocales').resolves([]);
       const linkResources = '</login/style.css>; rel=preload; as=style, '
@@ -885,8 +899,9 @@ describe('login controller', () => {
         chai.expect(cookie.args[2][0]).to.equal('locale');
         chai.expect(cookie.args[2][1]).to.equal('es');
         chai.expect(cookie.args[2][2]).to.deep.equal(DEFAULT_COOKIE_OPTIONS);
-        chai.expect(clearCookie.callCount).to.equal(1);
+        chai.expect(clearCookie.callCount).to.equal(2);
         chai.expect(clearCookie.args[0][0]).to.equal('login');
+        chai.expect(clearCookie.args[1][0]).to.equal('oidc_fresh');
       });
     });
 
@@ -1185,9 +1200,12 @@ describe('login controller', () => {
   });
 
   describe('oidcLogin', async () => {
+    const transaction = { s: 'state', n: 'nonce', v: 'verifier', f: false };
     beforeEach(() => {
       req.originalUrl = `/${environment.db}/login/oidc/get_token`;
+      req.headers.cookie = 'oidc_transaction=signed-transaction';
       sinon.stub(config, 'get').returns('http://xx.app.medicmobile.org/');
+      sinon.stub(sso, 'parseTransaction').resolves(transaction);
       sinon.stub(sso, 'getIdToken');
       sinon.stub(sso, 'getCookie');
       sinon.stub(auth, 'getUserCtx');
@@ -1211,7 +1229,7 @@ describe('login controller', () => {
       chai.expect(rateLimit.isLimited.calledOnceWithExactly(req)).to.be.true;
       chai.expect(serverUtils.rateLimited.notCalled).to.be.true;
       chai.expect(sso.getIdToken.calledOnceWithExactly(
-        new URL(`http://xx.app.medicmobile.org/${environment.db}/login/oidc/get_token`)
+        new URL(`http://xx.app.medicmobile.org/${environment.db}/login/oidc/get_token`), transaction
       )).to.be.true;
       chai.expect(sso.getCookie.calledOnceWithExactly(idToken.username)).to.be.true;
       chai.expect(auth.getUserCtx.calledOnceWithExactly({
@@ -1240,7 +1258,7 @@ describe('login controller', () => {
       chai.expect(rateLimit.isLimited.calledOnceWithExactly(req)).to.be.true;
       chai.expect(serverUtils.rateLimited.notCalled).to.be.true;
       chai.expect(sso.getIdToken.calledOnceWithExactly(
-        new URL(`http://xx.app.medicmobile.org/${environment.db}/login/oidc/get_token`)
+        new URL(`http://xx.app.medicmobile.org/${environment.db}/login/oidc/get_token`), transaction
       )).to.be.true;
       chai.expect(sso.getCookie.calledOnceWithExactly(idToken.username)).to.be.true;
       chai.expect(auth.getUserCtx.notCalled).to.be.true;
@@ -1272,6 +1290,19 @@ describe('login controller', () => {
       chai.expect(config.get.calledOnceWithExactly('app_url')).to.be.true;
     });
 
+    it('clears and rejects a missing transaction before exchanging the code', async () => {
+      req.headers.cookie = '';
+      sso.parseTransaction.rejects(new Error('Invalid OIDC transaction.'));
+      const clearCookie = sinon.stub(res, 'clearCookie');
+
+      await controller.oidcLogin(req, res);
+
+      chai.expect(sso.parseTransaction.calledOnceWithExactly(undefined)).to.be.true;
+      chai.expect(clearCookie.firstCall.args[0]).to.equal('oidc_transaction');
+      chai.expect(sso.getIdToken.notCalled).to.be.true;
+      chai.expect(res.redirect.calledOnceWithExactly(`/${environment.db}/login?sso_error=loginerror`)).to.be.true;
+    });
+
     it('does nothing when rate limited', async () => {
       rateLimit.isLimited.returns(true);
 
@@ -1293,11 +1324,14 @@ describe('login controller', () => {
   });
 
   describe('oidcAuthorize', async() => {
+    const transaction = { cookieValue: 'signed-transaction', authParams: { state: 'state' } };
     beforeEach(() => {
       sinon.stub(config, 'get').returns('http://xx.app.medicmobile.org');
+      sinon.stub(sso, 'buildTransaction').resolves(transaction);
       sinon.stub(sso, 'getAuthorizationUrl');
       sinon.stub(logger, 'error');
       sinon.stub(res, 'send');
+      sinon.stub(res, 'cookie');
       sinon.stub(res, 'status').returns(res);
     });
 
@@ -1309,7 +1343,11 @@ describe('login controller', () => {
 
       chai.expect(rateLimit.isLimited.calledOnceWithExactly(req)).to.be.true;
       chai.expect(serverUtils.rateLimited.notCalled).to.be.true;
-      chai.expect(sso.getAuthorizationUrl.calledWith(`http://xx.app.medicmobile.org/${environment.db}/login/oidc`)).to.be.true;
+      chai.expect(sso.buildTransaction.calledOnceWithExactly(false)).to.be.true;
+      chai.expect(sso.getAuthorizationUrl.calledWithExactly(
+        `http://xx.app.medicmobile.org/${environment.db}/login/oidc`, transaction
+      )).to.be.true;
+      chai.expect(res.cookie.firstCall.args[0]).to.equal('oidc_transaction');
       chai.expect(res.status.calledOnceWithExactly(302)).to.be.true;
       chai.expect(res.send.calledWith(oidcUrl)).to.be.true;
       chai.expect(logger.error.notCalled).to.be.true;
@@ -1335,6 +1373,18 @@ describe('login controller', () => {
       chai.expect(serverUtils.error.args[0][1]).to.equal(req);
       chai.expect(serverUtils.error.args[0][2]).to.equal(res);
       chai.expect(config.get.calledOnceWithExactly('app_url')).to.be.true;
+    });
+
+    it('consumes the fresh-login cookie when authorizing', async () => {
+      req.headers.cookie = 'oidc_fresh=1';
+      const clearCookie = sinon.stub(res, 'clearCookie');
+      sso.getAuthorizationUrl.returns(new URL('https://oidc.server/'));
+
+      await controller.oidcAuthorize(req, res);
+
+      chai.expect(sso.buildTransaction.calledOnceWithExactly(true)).to.be.true;
+      chai.expect(clearCookie.firstCall.args[0]).to.equal('oidc_fresh');
+      chai.expect(res.cookie.firstCall.args[0]).to.equal('oidc_transaction');
     });
 
     it('does nothing when rate limited', async () => {
