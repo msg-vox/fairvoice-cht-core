@@ -127,8 +127,11 @@ byte-identical behavior to today.
    - `oidcLogin`: read + **always clear** the tx cookie first (one-time;
      replay/missing → `sso_error=loginerror`); pass the transaction to
      `getIdToken`; the rest of the session-creation path is untouched.
-7. **Config**: none. Uses the existing `oidc_provider` settings; no Rauthy
-   client changes (redirect URI unchanged; `max_age` needs no registration).
+7. **Rauthy client config**: enable the **S256 PKCE challenge method** on the
+   existing Rauthy client identified by CHT's `oidc_provider.client_id`.
+   Rauthy rejects the new `code_challenge` with HTTP 400 when PKCE is disabled
+   for that client. Keep the client secret and redirect URI unchanged;
+   `max_age` needs no registration. No sms-idp client change is needed.
 
 ## Part 3 — cht-android: suppress auto-login on the marker page
 
@@ -187,11 +190,14 @@ byte-identical behavior to today.
 
 - RP-initiated logout (destroying the Rauthy session at CHT logout) — not
   included; this plan forces fresh authentication at next login instead.
-- No Rauthy, sms-idp, or user-manager changes.
+- No Rauthy server code, sms-idp, or user-manager changes. The existing Rauthy
+  CHT client must allow S256 PKCE as described in step 7.
 - No change to ordinary SSO or to offline behavior.
 
 ## Key risks
 
+- **Rauthy client PKCE disabled:** Rauthy returns HTTP 400 (`code_challenge`
+  not enabled for this client) until S256 PKCE is enabled for the CHT client.
 - **Clock skew** > 30 s between the CHT api and Rauthy would break fresh logins
   (the `auth_time` tolerance). Both are NTP-synced hosts; verify on staging.
 - **Launcher variance:** launchers that bring the existing task forward with no
