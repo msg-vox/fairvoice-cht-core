@@ -24,7 +24,7 @@ export class SessionService {
     private location: LocationService
   ) {}
 
-  navigateToLogin() {
+  navigateToLogin(explicitLogout = false) {
     console.warn('User must reauthenticate');
     const params = new URLSearchParams();
     params.append('redirect', this.document.location.href);
@@ -33,13 +33,16 @@ export class SessionService {
     if (username) {
       params.append('username', username);
     }
+    if (explicitLogout) {
+      params.append('explicit_logout', '1');
+    }
 
     this.cookieService.delete(COOKIE_NAME, '/');
     this.userCtxCookieValue = undefined;
     this.document.location.href = `/${this.location.dbName}/login?${params.toString()}`;
   }
 
-  logout() {
+  logout(explicitLogout = true) {
     return this.http
       .delete('/_session', this.httpOptions)
       .toPromise()
@@ -48,7 +51,7 @@ export class SessionService {
         this.cookieService.set('login', 'force', undefined, '/');
       })
       .then(() => {
-        this.navigateToLogin();
+        this.navigateToLogin(explicitLogout);
       });
   }
 
@@ -77,7 +80,7 @@ export class SessionService {
     return this.http
       .get('/' + this.location.dbName + '/login/identity')
       .toPromise()
-      .catch(this.logout);
+      .catch(() => this.logout(false));
   }
 
   public check() {
@@ -89,7 +92,7 @@ export class SessionService {
   init () {
     const userCtx = this.userCtx();
     if (!userCtx || !userCtx.name) {
-      return this.logout();
+      return this.logout(false);
     }
 
     return this.http
@@ -99,7 +102,7 @@ export class SessionService {
         const name = value && value.userCtx && value.userCtx.name;
         if (name !== userCtx.name) {
           // connected to the internet but server session is different
-          this.logout();
+          this.logout(false);
           return;
         }
         if (_.difference(userCtx.roles, value!.userCtx.roles).length ||
