@@ -3,6 +3,11 @@ const ONE_YEAR_IN_MS = 31536000000;
 const ONE_SECOND_IN_MS = 1000;
 const COOKIE_ATTRIBUTE_SPLIT_RE = /;\s*/;
 const sessionCookieName = 'AuthSession';
+const environment = require('@medic/environment');
+const OIDC_FRESH_COOKIE = 'oidc_fresh';
+const OIDC_TRANSACTION_COOKIE = 'oidc_transaction';
+const loginPath = () => `/${environment.db}/login`;
+const transactionPath = () => `${loginPath()}/oidc`;
 
 const getCookieOptions = (options = {}) => {
   Object.keys(options).forEach(key => {
@@ -76,5 +81,25 @@ module.exports = {
   },
   setForceLogin: (res) => {
     res.cookie('login', 'force', getCookieOptions());
-  }
+  },
+  setOidcFreshLogin: (res) => {
+    res.cookie(OIDC_FRESH_COOKIE, '1', getCookieOptions({
+      httpOnly: true,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: loginPath(),
+    }));
+  },
+  clearOidcFreshLogin: (res) => {
+    res.clearCookie(OIDC_FRESH_COOKIE, getCookieOptions({ httpOnly: true, path: loginPath() }));
+  },
+  setOidcTransaction: (res, value) => {
+    res.cookie(OIDC_TRANSACTION_COOKIE, value, getCookieOptions({
+      httpOnly: true,
+      maxAge: 600000,
+      path: transactionPath(),
+    }));
+  },
+  clearOidcTransaction: (res) => {
+    res.clearCookie(OIDC_TRANSACTION_COOKIE, getCookieOptions({ httpOnly: true, path: transactionPath() }));
+  },
 };

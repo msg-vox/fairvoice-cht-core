@@ -1,6 +1,7 @@
 const chai = require('chai');
 const sinon = require('sinon');
 const rewire = require('rewire');
+const environment = require('@medic/environment');
 
 let res;
 let service;
@@ -89,6 +90,36 @@ describe('cookie service', () => {
           secure: true,
           maxAge: oneYear,
         },
+      ]);
+    });
+  });
+
+  describe('OIDC cookies', () => {
+    it('sets and clears a short-lived callback transaction with matching paths', () => {
+      service.setOidcTransaction(res, 'signed-value');
+      service.clearOidcTransaction(res);
+
+      chai.expect(res.cookie.firstCall.args).to.deep.equal([
+        'oidc_transaction', 'signed-value', {
+          httpOnly: true, maxAge: 600000, path: `/${environment.db}/login/oidc`, sameSite: 'lax', secure: false,
+        }
+      ]);
+      chai.expect(res.clearCookie.firstCall.args).to.deep.equal([
+        'oidc_transaction', { httpOnly: true, path: `/${environment.db}/login/oidc`, sameSite: 'lax', secure: false }
+      ]);
+    });
+
+    it('sets and clears the fresh-login opt-in on the login path', () => {
+      service.setOidcFreshLogin(res);
+      service.clearOidcFreshLogin(res);
+
+      chai.expect(res.cookie.firstCall.args).to.deep.equal([
+        'oidc_fresh', '1', {
+          httpOnly: true, maxAge: 2592000000, path: `/${environment.db}/login`, sameSite: 'lax', secure: false,
+        }
+      ]);
+      chai.expect(res.clearCookie.firstCall.args).to.deep.equal([
+        'oidc_fresh', { httpOnly: true, path: `/${environment.db}/login`, sameSite: 'lax', secure: false }
       ]);
     });
   });
