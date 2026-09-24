@@ -12,6 +12,10 @@ const client = require('../../../src/services/openid-client');
 const service = require('../../../src/services/sso-login');
 
 const CLIENT_SECRET = 'secret';
+const TRANSACTION = {
+  s: 'state', n: 'nonce', v: 'verifier', f: false,
+  authParams: { state: 'state', nonce: 'nonce', code_challenge: 'challenge', code_challenge_method: 'S256' },
+};
 const SERVER_METADATA = {
   issuer: 'http://oidc-provider.com',
   authorization_endpoint: 'http://oidc-provider.com/authorize',
@@ -58,6 +62,39 @@ describe('SSO login', () => {
     expect(idServerConfig.serverMetadata.calledOnceWithExactly()).to.be.true;
   };
 
+  describe('OIDC transaction', () => {
+    beforeEach(() => sinon.stub(secureSettings, 'getCouchConfig').resolves('couch-secret'));
+
+    it('round trips a signed transaction and includes PKCE parameters', async () => {
+      const transaction = await service.buildTransaction(false);
+      const parsed = await service.parseTransaction(transaction.cookieValue);
+
+      expect(parsed).to.include({ s: transaction.authParams.state, n: transaction.authParams.nonce, f: false });
+      expect(parsed.v).to.be.a('string').that.is.not.empty;
+      expect(transaction.authParams).to.include({ code_challenge_method: 'S256' });
+      expect(transaction.authParams.code_challenge).to.be.a('string').that.is.not.empty;
+      expect(transaction.authParams).not.to.have.property('max_age');
+    });
+
+    it('rejects a modified signature and an expired transaction', async () => {
+      const clock = sinon.useFakeTimers();
+      const transaction = await service.buildTransaction(true);
+      const [encoded, signature] = transaction.cookieValue.split('.');
+      const replacement = signature[0] === 'A' ? 'B' : 'A';
+      await expect(service.parseTransaction(`${encoded}.${replacement}${signature.slice(1)}`))
+        .to.be.rejectedWith('Invalid OIDC transaction.');
+      clock.tick(600001);
+      await expect(service.parseTransaction(transaction.cookieValue))
+        .to.be.rejectedWith('Invalid OIDC transaction.');
+    });
+
+    it('adds max_age only for fresh authentication', async () => {
+      const transaction = await service.buildTransaction(true);
+      expect(transaction.authParams.max_age).to.equal('0');
+      expect((await service.parseTransaction(transaction.cookieValue)).f).to.be.true;
+    });
+  });
+
   describe('getAuthorizationUrl', () => {
     const AUTH_URL = 'https://fake-url.com';
     const REDIRECT_URL = 'http://localhost/medic/oidc';
@@ -67,7 +104,7 @@ describe('SSO login', () => {
     it('throws error when oidc_provider is not configured', async () => {
       settingsService.get.resolves({});
 
-      await expect(service.getAuthorizationUrl(REDIRECT_URL)).to.be.rejectedWith(
+      await expect(service.getAuthorizationUrl(REDIRECT_URL, TRANSACTION)).to.be.rejectedWith(
         'oidc_provider config is missing in settings.'
       );
 
@@ -86,7 +123,7 @@ describe('SSO login', () => {
       it(`throws error when ${missingProp} is not provided in oidc_provider settings`, async () => {
         settingsService.get.resolves({ oidc_provider });
 
-        await expect(service.getAuthorizationUrl(REDIRECT_URL)).to.be.rejectedWith(
+        await expect(service.getAuthorizationUrl(REDIRECT_URL, TRANSACTION)).to.be.rejectedWith(
           `The discovery_url and client_id must be provided in the oidc_provider config.`
         );
 
@@ -103,7 +140,7 @@ describe('SSO login', () => {
       settingsService.get.resolves(SETTINGS);
       secureSettings.getCredentials.resolves('');
 
-      await expect(service.getAuthorizationUrl(REDIRECT_URL)).to.be.rejectedWith(
+      await expect(service.getAuthorizationUrl(REDIRECT_URL, TRANSACTION)).to.be.rejectedWith(
         `No OIDC client secret 'oidc:client-secret' configured.`
       );
 
@@ -120,7 +157,7 @@ describe('SSO login', () => {
       secureSettings.getCredentials.resolves(CLIENT_SECRET);
       client.discovery.resolves(idServerConfig);
 
-      const url = await service.getAuthorizationUrl(REDIRECT_URL);
+      const url = await service.getAuthorizationUrl(REDIRECT_URL, TRANSACTION);
 
       expect(url).to.equal(AUTH_URL);
       expectOidcServerConfigRetrieved();
@@ -131,7 +168,8 @@ describe('SSO login', () => {
         idServerConfig,
         {
           redirect_uri: REDIRECT_URL,
-          scope: 'openid email'
+          scope: 'openid email',
+          ...TRANSACTION.authParams,
         }
       )).to.be.true;
     });
@@ -144,7 +182,7 @@ describe('SSO login', () => {
       secureSettings.getCredentials.resolves(CLIENT_SECRET);
       client.discovery.resolves(idServerConfig);
 
-      const url = await service.getAuthorizationUrl(REDIRECT_URL);
+      const url = await service.getAuthorizationUrl(REDIRECT_URL, TRANSACTION);
 
       expect(url).to.equal(AUTH_URL);
       expect(settingsService.get.calledOnceWithExactly()).to.be.true;
@@ -164,7 +202,8 @@ describe('SSO login', () => {
         idServerConfig,
         {
           redirect_uri: REDIRECT_URL,
-          scope: 'openid email'
+          scope: 'openid email',
+          ...TRANSACTION.authParams,
         }
       )).to.be.true;
     });
@@ -176,7 +215,7 @@ describe('SSO login', () => {
       client.discovery.onSecondCall().rejects(new Error());
       client.discovery.onThirdCall().resolves(idServerConfig);
 
-      const url = await service.getAuthorizationUrl(REDIRECT_URL);
+      const url = await service.getAuthorizationUrl(REDIRECT_URL, TRANSACTION);
 
       expect(url).to.equal(AUTH_URL);
       expect(settingsService.get.calledOnceWithExactly()).to.be.true;
@@ -194,7 +233,8 @@ describe('SSO login', () => {
         idServerConfig,
         {
           redirect_uri: REDIRECT_URL,
-          scope: 'openid email'
+          scope: 'openid email',
+          ...TRANSACTION.authParams,
         }
       )).to.be.true;
     });
@@ -205,7 +245,7 @@ describe('SSO login', () => {
       const expectedError = new Error('Could not complete request');
       client.discovery.rejects(expectedError);
 
-      await expect(service.getAuthorizationUrl(REDIRECT_URL)).to.be.rejectedWith(expectedError);
+      await expect(service.getAuthorizationUrl(REDIRECT_URL, TRANSACTION)).to.be.rejectedWith(expectedError);
 
       expect(settingsService.get.calledOnceWithExactly()).to.be.true;
       expect(secureSettings.getCredentials.calledOnceWithExactly('oidc:client-secret')).to.be.true;
@@ -227,7 +267,7 @@ describe('SSO login', () => {
       expectedError.status = 400;
       client.discovery.rejects(expectedError);
 
-      await expect(service.getAuthorizationUrl(REDIRECT_URL)).to.be.rejectedWith(expectedError);
+      await expect(service.getAuthorizationUrl(REDIRECT_URL, TRANSACTION)).to.be.rejectedWith(expectedError);
 
       expect(settingsService.get.calledOnceWithExactly()).to.be.true;
       expect(secureSettings.getCredentials.calledOnceWithExactly('oidc:client-secret')).to.be.true;
@@ -253,8 +293,19 @@ describe('SSO login', () => {
       expectedAuthCodeGrantParams = [
         idServerConfig,
         REDIRECT_URL,
-        { idTokenExpected: true }
+        {
+          expectedState: TRANSACTION.s,
+          expectedNonce: TRANSACTION.n,
+          pkceCodeVerifier: TRANSACTION.v,
+          idTokenExpected: true,
+        }
       ];
+    });
+
+    it('passes maxAge zero for fresh authentication', async () => {
+      client.authorizationCodeGrant.resolves({ claims: () => ({ email: 'test@email.com' }) });
+      await service.getIdToken(REDIRECT_URL, { ...TRANSACTION, f: true });
+      expect(client.authorizationCodeGrant.firstCall.args[2]).to.include({ maxAge: 0 });
     });
 
     [
@@ -271,7 +322,8 @@ describe('SSO login', () => {
         claims.returns(expectedClaims);
         client.authorizationCodeGrant.resolves({ claims });
 
-        await expect(service.getIdToken(REDIRECT_URL)).to.be.rejectedWith('Email claim is missing in the id token.');
+        await expect(service.getIdToken(REDIRECT_URL, TRANSACTION))
+          .to.be.rejectedWith('Email claim is missing in the id token.');
 
         expectOidcServerConfigRetrieved();
         expect(logger.debug.calledOnceWithExactly(
@@ -291,7 +343,7 @@ describe('SSO login', () => {
       claims.returns(expectedClaims);
       client.authorizationCodeGrant.resolves({ claims });
 
-      const idTokenClaims = await service.getIdToken(REDIRECT_URL);
+      const idTokenClaims = await service.getIdToken(REDIRECT_URL, TRANSACTION);
 
       expect(idTokenClaims).to.deep.equal({
         locale: 'en',
@@ -315,7 +367,7 @@ describe('SSO login', () => {
         claims.returns(expectedClaims);
         client.authorizationCodeGrant.resolves({ claims });
 
-        const idTokenClaims = await service.getIdToken(REDIRECT_URL);
+        const idTokenClaims = await service.getIdToken(REDIRECT_URL, TRANSACTION);
 
         expect(idTokenClaims).to.deep.equal({ username: 'test@email.com', locale: 'en' });
         expectOidcServerConfigRetrieved();
@@ -339,7 +391,7 @@ describe('SSO login', () => {
       client.authorizationCodeGrant.onSecondCall().rejects(new Error());
       client.authorizationCodeGrant.onThirdCall().resolves({ claims });
 
-      const idTokenClaims = await service.getIdToken(REDIRECT_URL);
+      const idTokenClaims = await service.getIdToken(REDIRECT_URL, TRANSACTION);
 
       expect(idTokenClaims).to.deep.equal({
         locale: 'en',
@@ -367,7 +419,7 @@ describe('SSO login', () => {
       const expectedError = new Error('Could not complete request');
       client.authorizationCodeGrant.rejects(expectedError);
 
-      await expect(service.getIdToken(REDIRECT_URL)).to.be.rejectedWith(expectedError);
+      await expect(service.getIdToken(REDIRECT_URL, TRANSACTION)).to.be.rejectedWith(expectedError);
 
       expectOidcServerConfigRetrieved();
       expect(logger.debug.args).to.deep.equal([
