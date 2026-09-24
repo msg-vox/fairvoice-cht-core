@@ -3,6 +3,10 @@ const {
   buildAuthorizationUrl,
   authorizationCodeGrant,
   allowInsecureRequests,
+  randomState,
+  randomNonce,
+  randomPKCECodeVerifier,
+  calculatePKCECodeChallenge,
 } = require('openid-client');
 
 /*
@@ -13,4 +17,8 @@ module.exports = {
   buildAuthorizationUrl,
   authorizationCodeGrant,
   allowInsecureRequests,
+  randomState,
+  randomNonce,
+  randomPKCECodeVerifier,
+  calculatePKCECodeChallenge,
 };

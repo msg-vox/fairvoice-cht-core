@@ -1,4 +1,4 @@
-const { createHmac } = require('crypto');
+const { createHmac, timingSafeEqual } = require('crypto');
 const {setTimeout} = require('node:timers/promises');
 const config = require('../config');
 const db = require('../db');
@@ -11,6 +11,65 @@ const settingsService = require('./settings');
 const translations = require('../translations');
 
 const OIDC_CLIENT_SECRET_KEY = 'oidc:client-secret';
+const TRANSACTION_LIFETIME_MS = 10 * 60 * 1000;
+const TRANSACTION_FORMAT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+const getTransactionSecret = async () => {
+  const secret = await secureSettings.getCouchConfig('couch_httpd_auth/secret');
+  if (!secret) {
+    throw new Error('CouchDB authentication secret is missing.');
+  }
+  return secret;
+};
+
+const signTransaction = (encoded, secret) => createHmac('sha256', secret)
+  .update(encoded)
+  .digest('base64url');
+
+const buildTransaction = async (requireFreshAuth) => {
+  const transaction = {
+    s: client.randomState(),
+    n: client.randomNonce(),
+    v: client.randomPKCECodeVerifier(),
+    f: !!requireFreshAuth,
+    t: Date.now(),
+  };
+  const codeChallenge = await client.calculatePKCECodeChallenge(transaction.v);
+  const encoded = Buffer.from(JSON.stringify(transaction)).toString('base64url');
+  const cookieValue = `${encoded}.${signTransaction(encoded, await getTransactionSecret())}`;
+  return {
+    cookieValue,
+    authParams: {
+      state: transaction.s,
+      nonce: transaction.n,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      ...(transaction.f && { max_age: '0' }),
+    },
+  };
+};
+
+const parseTransaction = async (cookieValue) => {
+  if (typeof cookieValue !== 'string' || !TRANSACTION_FORMAT.test(cookieValue)) {
+    throw new Error('Invalid OIDC transaction.');
+  }
+  const [encoded, signature] = cookieValue.split('.');
+  const expected = Buffer.from(signTransaction(encoded, await getTransactionSecret()), 'base64url');
+  const actual = Buffer.from(signature, 'base64url');
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    throw new Error('Invalid OIDC transaction.');
+  }
+  const transaction = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+  if (typeof transaction.s !== 'string' || !transaction.s ||
+      typeof transaction.n !== 'string' || !transaction.n ||
+      typeof transaction.v !== 'string' || !transaction.v ||
+      typeof transaction.f !== 'boolean' ||
+      !Number.isSafeInteger(transaction.t) ||
+      transaction.t > Date.now() || Date.now() - transaction.t > TRANSACTION_LIFETIME_MS) {
+    throw new Error('Invalid OIDC transaction.');
+  }
+  return transaction;
+};
 
 /**
  * Retries the function call for the unknown errors.
@@ -87,10 +146,11 @@ const oidcServerSConfig = async () => {
  * @param {string} redirectUrl Url to redirect to after authorization completes in oidc server.
  * @returns {string} OIDC authorization url.
  */
-const getAuthorizationUrl = async (redirectUrl) => {
+const getAuthorizationUrl = async (redirectUrl, transaction) => {
   const params = {
     redirect_uri: redirectUrl,
-    scope: 'openid email'
+    scope: 'openid email',
+    ...transaction.authParams,
   };
 
   const serverConfig = await oidcServerSConfig();
@@ -114,12 +174,18 @@ const getLocale = async (localeClaim) => {
  * @param {string} currentUrl Current url that contains authorization code grant.
  * @returns {object} Token id and user details.
  */
-const getIdToken = async (currentUrl) => {
+const getIdToken = async (currentUrl, transaction) => {
   const serverConfig = await oidcServerSConfig();
   const authorizationCodeGrant = () => client.authorizationCodeGrant(
     serverConfig,
     currentUrl,
-    { idTokenExpected: true }
+    {
+      expectedState: transaction.s,
+      expectedNonce: transaction.n,
+      pkceCodeVerifier: transaction.v,
+      idTokenExpected: true,
+      ...(transaction.f && { maxAge: 0 }),
+    }
   );
   const tokens = await authServerCallRetry(authorizationCodeGrant);
   const { email, locale } = tokens.claims();
@@ -193,6 +259,8 @@ const getCookie = async (oidcUsername) => {
 };
 
 module.exports = {
+  buildTransaction,
+  parseTransaction,
   getAuthorizationUrl,
   getCookie,
   getIdToken
