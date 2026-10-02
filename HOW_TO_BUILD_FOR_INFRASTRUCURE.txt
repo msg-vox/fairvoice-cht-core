@@ -1,9 +1,14 @@
-# currently .2 is with the logout session changes
-fish_add_path --path (pwd)/node_modules/.bin
+# currently 5.3.1-fairvoice.1 is with the logout session changes
+#fish_add_path --path (pwd)/node_modules/.bin
 ### are these next two needed?
 #mkdir api/build/static/webapp/img
 #cd admin && npm ci && cd -
-./scripts/build/build-ci.sh
-BRANCH=fairvoice BUILD_NUMBER=2 ./scripts/build/build-service-images.sh
-docker tag medicmobile/cht-api:5.2.0-fairvoice.2 registry.msg-vox.net/cht-api:5.2.0-fairvoice.2
-docker push registry.msg-vox.net/cht-api:5.2.0-fairvoice.2
+#npm run ci-compile
+
+npm ci
+npm run --prefix shared-libs/cht-datasource build
+npm run build
+
+BRANCH=fairvoice BUILD_NUMBER=1 ./scripts/build/build-service-images.sh
+docker tag medicmobile/cht-api:5.3.1-fairvoice.1 registry.msg-vox.net/cht-api:5.3.1-fairvoice.1
+docker push registry.msg-vox.net/cht-api:5.3.1-fairvoice.1
