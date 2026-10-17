@@ -36,7 +36,7 @@ export class HeaderTabsService {
     name: 'reports',
     route: 'reports',
     defaultIcon: 'fa-list-alt',
-    translation: 'Reports',
+    translation: 'Responses',
     typeName: 'report',
     weight: 3,
   };
