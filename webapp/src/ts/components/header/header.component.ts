@@ -122,6 +122,45 @@ export class HeaderComponent extends BaseMenuComponent implements OnInit, OnDest
     });
   }
 
+  async switchLanguage(code: string): Promise<void> {
+    if (this.destroyed || this.languageSwitchPending || code === this.activeLanguage ||
+        !this.availableLanguages.some(language => language.code === code)) {
+      return;
+    }
+
+    this.languageSwitchPending = true;
+    this.languageSwitchError = false;
+    this.languageRestoreError = false;
+    let previousLanguage = this.activeLanguage;
+    try {
+      // Resolve a recovery target before allowing the setter to change global locales.
+      previousLanguage = previousLanguage || await this.languageService.get();
+      if (!this.destroyed) {
+        await this.setLanguageService.set(code);
+      }
+    } catch (error) {
+      console.error('Unable to switch toolbar language', { code, previousLanguage, error });
+      if (!this.destroyed) {
+        this.languageSwitchError = true;
+      }
+      if (previousLanguage) {
+        try {
+          // The setter can reject after changing date locales, translations, or the cookie.
+          await this.setLanguageService.set(previousLanguage);
+        } catch (restoreError) {
+          console.error('Unable to restore toolbar language', { previousLanguage, restoreError });
+          if (!this.destroyed) {
+            this.languageRestoreError = true;
+          }
+        }
+      }
+    } finally {
+      if (!this.destroyed) {
+        this.languageSwitchPending = false;
+      }
+    }
+  }
+
   trackLanguage(_index: number, language: AvailableLanguage): string {
     return language.code;
   }
