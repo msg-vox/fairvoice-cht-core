@@ -113,3 +113,14 @@ Extend the translation end-to-end coverage under `tests/e2e/default/translations
 - Desktop, mobile, legacy navigation, keyboard use, RTL, and locally available offline translations are verified.
 
 This document is an implementation plan. No application changes or runtime verification are included in this task.
+
+## Implementation record
+
+### Step 1 — behavior and integration decisions
+
+- The current navigation renders `mm-header` as a desktop sidebar/mobile bottom bar and hides `.extras`. Render the language controls outside that hidden container, with a bounded top-toolbar position in current navigation and beside the options menu in legacy navigation. Reserve toolbar space rather than covering existing controls.
+- Use the existing translated `Language` group label and `Error saving settings` retry message. Language names use native buttons and isolated text.
+- `AppComponent.watchDDocChanges()` prompts for an application update when settings change; `SettingsService` invalidates its cache. Reloading through that existing flow recreates the header and language list.
+- `EnketoService` supplies form language when constructing a form. Toolbar switching must not navigate, reload, or reconstruct the form; live translation of an existing form is not promised.
+- Restore the previously resolved/committed language with `SetLanguageService` if switching rejects, because its date locale and cookie updates can precede failure. Keep errors visible and allow retry, including when restoration fails.
+- CHT Docs MCP was queried for settings configuration; local source remains the reference for refresh and form behavior.
