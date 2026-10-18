@@ -112,7 +112,7 @@ Extend the translation end-to-end coverage under `tests/e2e/default/translations
 - Loading and switching failures keep the toolbar usable, expose an understandable error where appropriate, and allow retry.
 - Desktop, mobile, legacy navigation, keyboard use, RTL, and locally available offline translations are verified.
 
-This document is an implementation plan. No application changes or runtime verification are included in this task.
+The original implementation plan is followed by an implementation record and verification results below.
 
 ## Implementation record
 
@@ -124,3 +124,22 @@ This document is an implementation plan. No application changes or runtime verif
 - `EnketoService` supplies form language when constructing a form. Toolbar switching must not navigate, reload, or reconstruct the form; live translation of an existing form is not promised.
 - Restore the previously resolved/committed language with `SetLanguageService` if switching rejects, because its date locale and cookie updates can precede failure. Keep errors visible and allow retry, including when restoration fails.
 - CHT Docs MCP was queried for settings configuration; local source remains the reference for refresh and form behavior.
+
+### Steps 2–7 — implementation
+
+- Added a typed language-list contract without changing the existing filtering/fallback behavior. The header resolves its initial locale, follows committed store updates, handles loading errors, and guards asynchronous language state after destruction.
+- Added serialized switching, committed selection, and recovery through the existing setter. Failed recovery has its own visible reload message; normal failures permit retry.
+- Added native buttons with translated group/error text, active and disabled states, isolated language names, and an alert region. Existing translation keys suffice; translation files are unchanged.
+- Final placement is beside the top controls in current navigation and in the controls toolbar beneath the navigation row in legacy navigation. The layout reserves bounded space using logical CSS properties, permits horizontal scrolling, and keeps a visible keyboard focus indicator. Search/navigation flex items can shrink into the remaining space.
+- Added header unit coverage and setter failure-stage recovery tests. Added shared desktop/mobile end-to-end scenarios for configured choices, normal settings refresh, immediate translation, route stability, cookie persistence, user settings synchronization, offline reload, RTL, long names, and unsaved forms. The form and configuration fixtures are restored/removed during cleanup.
+
+### Step 8 — verification results and remaining runtime checks
+
+- Focused Chrome run: **46 tests passed**, covering the header and both language services, including translation-loading, cookie-writing, and date-formatting failure stages.
+- `npm run unit-webapp`: timezone tests passed (**476 tests in each of three timezones**); the Angular suite reported **3,277 passing and seven failing**. All seven failures also reproduce on the original revision `09274ad7` in an isolated workspace: six report/contacts RouterLink tests have incomplete router event stubs, and one report edit-permission test expects `false` but receives `undefined`. The isolated subset additionally exhibits an existing select-mode redirect assertion failure. No unrelated tests were changed.
+- The full command stops on those Angular failures, so the CHT form suite was run separately: **32 tests passed**.
+- `npm run lint` was run before every implementation commit. ESLint and the blank-link check pass for the change; the full command fails on existing ShellCheck findings **SC2155, SC2086, SC2046 in `build-images.sh:7`**. An existing unused-disable ESLint warning remains in `api/tests/mocha/services/settings.spec.js`. No translation-resource changes required translation lint.
+- Both changed LESS entry points compile. A standalone Chrome fixture using the compiled application CSS passed **12 layout checks**: 360/450/1200px × current/legacy navigation × LTR/RTL. Checks cover computed visibility, bounded horizontal overflow, keyboard focus, and scrolling the focused button into view. Narrow screenshots were inspected. This fixture is not a full app runtime test.
+- Desktop and mobile WebdriverIO runs were attempted. The default run first exposed the absence of an image tag in this jj workspace; retrying with an explicit tag reached Docker startup and failed because the CHT images are not built locally or available from the registry. No application scenario executed. A running instance built from these changes is still needed to verify actual offline switching/reload, unsaved forms, toolbar-control spacing on real routes, and settings-modal synchronization.
+- Screen-reader announcement checks and full application keyboard/visual checks remain manual. The existing form-construction code supports retaining the same form instance, but runtime preservation and form-language behavior are deliberately not claimed as verified.
+- To finish runtime verification, build the local CHT images, set `VERSION` to their tag, and run `npm run ci-webdriver-default -- --spec=tests/e2e/default/translations/toolbar-languages.wdio-spec.js`, then the equivalent `ci-webdriver-default-mobile` command. The shared spec is also included in the normal mobile suite.

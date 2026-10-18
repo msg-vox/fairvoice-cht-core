@@ -43,7 +43,7 @@ describe('Toolbar languages', () => {
     await utils.saveDoc({ ...originalFrench, _rev: currentFrench._rev });
     await utils.revertSettings(true);
     await utils.deleteUsers([user]);
-    await utils.deleteDocs([...places.values(), formDoc._id]);
+    await utils.deleteDocs([...places.values()].map(place => place._id).concat(formDoc._id));
     await browser.deleteCookies('locale');
     if (originalCookies.length) {
       await browser.setCookies(originalCookies);
