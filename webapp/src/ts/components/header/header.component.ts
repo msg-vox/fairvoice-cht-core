@@ -18,6 +18,9 @@ import { RelativeDatePipe } from '@mm-pipes/date.pipe';
 import { LocalizeNumberPipe } from '@mm-pipes/number.pipe';
 import { HeaderLogoPipe, ResourceIconPipe } from '@mm-pipes/resource-icon.pipe';
 
+import { AvailableLanguage, LanguagesService } from '@mm-services/languages.service';
+import { LanguageService, SetLanguageService } from '@mm-services/language.service';
+
 import { HeaderTab, HeaderTabsService, SidebarTab } from '@mm-services/header-tabs.service';
 
 export const OLD_NAV_PERMISSION = 'can_view_old_navigation';
@@ -45,6 +48,15 @@ export class HeaderComponent extends BaseMenuComponent implements OnInit, OnDest
   @Input() adminUrl;
   @Input() canLogOut;
 
+  availableLanguages: AvailableLanguage[] = [];
+  activeLanguage: string | undefined;
+  languageSwitchPending = false;
+  languageLoadError = false;
+  languageSwitchError = false;
+  languageRestoreError = false;
+  private destroyed = false;
+  private languageFromStore = false;
+
   showPrivacyPolicy = false;
   // replicationStatus;
   currentTab;
@@ -58,6 +70,9 @@ export class HeaderComponent extends BaseMenuComponent implements OnInit, OnDest
     protected readonly modalService: ModalService,
     protected readonly storageInfoService: StorageInfoService,
     private headerTabsService: HeaderTabsService,
+    private languagesService: LanguagesService,
+    private languageService: LanguageService,
+    private setLanguageService: SetLanguageService,
   ) {
     super(store, dbSyncService, modalService, storageInfoService);
   }
@@ -65,6 +80,7 @@ export class HeaderComponent extends BaseMenuComponent implements OnInit, OnDest
   ngOnInit(): void {
     super.ngOnInit();
     this.additionalSubscriptions();
+    this.loadLanguages();
     this.getHeaderTabs();
     this.headerTabsService
       .getSidebarTabs()
@@ -72,6 +88,7 @@ export class HeaderComponent extends BaseMenuComponent implements OnInit, OnDest
   }
 
   ngOnDestroy() {
+    this.destroyed = true;
     super.ngOnDestroy();
   }
 
@@ -81,7 +98,41 @@ export class HeaderComponent extends BaseMenuComponent implements OnInit, OnDest
     }
   }
 
+  private loadLanguages(): void {
+    this.languageService.get().then(code => {
+      if (!this.destroyed && !this.languageFromStore) {
+        this.activeLanguage = code;
+      }
+    }).catch(error => {
+      if (!this.destroyed) {
+        this.languageLoadError = true;
+        console.error('Unable to resolve toolbar language', error);
+      }
+    });
+
+    this.languagesService.get().then(languages => {
+      if (!this.destroyed) {
+        this.availableLanguages = languages;
+      }
+    }).catch(error => {
+      if (!this.destroyed) {
+        this.languageLoadError = true;
+        console.error('Unable to load toolbar languages', error);
+      }
+    });
+  }
+
+  trackLanguage(_index: number, language: AvailableLanguage): string {
+    return language.code;
+  }
+
   private additionalSubscriptions(){
+    this.subscriptions.add(this.store.select(Selectors.getLanguage).subscribe(language => {
+      if (language?.code) {
+        this.languageFromStore = true;
+        this.activeLanguage = language.code;
+      }
+    }));
     const currentTab = this.store
       .select(Selectors.getCurrentTab)
       .subscribe(tab => this.currentTab = tab);

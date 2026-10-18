@@ -4,6 +4,11 @@ import { PREFIXES } from '@medic/constants';
 import { DbService } from '@mm-services/db.service';
 import { SettingsService } from '@mm-services/settings.service';
 
+export interface AvailableLanguage {
+  code: string;
+  name?: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -13,7 +18,7 @@ export class LanguagesService {
     private settingsService: SettingsService,
   ){}
 
-  async get(): Promise<Object> {
+  async get(): Promise<AvailableLanguage[]> {
     const settings = await this.settingsService.get();
 
     const enabledLanguages = (settings.languages || [])
