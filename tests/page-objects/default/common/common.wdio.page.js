@@ -623,24 +623,35 @@ const reloadSession = async () => {
   await browser.url('/');
 };
 
-const toolbarLanguageButton = code => $(`.toolbar-languages button[data-language-code="${code}"]`);
+const toolbarLanguageButton = code => $(`.language-menu button[data-language-code="${code}"]`);
+const openToolbarLanguages = async () => {
+  if (!await $('.language-menu').isDisplayed()) {
+    await $('.language-menu-trigger').click();
+    await $('.language-menu').waitForDisplayed();
+  }
+};
 const getToolbarLanguages = async () => {
-  const buttons = await $$('.toolbar-languages button');
+  await openToolbarLanguages();
+  const buttons = await $$('.language-menu button');
   return Promise.all(buttons.map(async button => ({
     code: await button.getAttribute('data-language-code'),
     name: await button.getText(),
   })));
 };
 const switchToolbarLanguage = async code => {
+  await openToolbarLanguages();
   const button = toolbarLanguageButton(code);
   await button.waitForDisplayed();
   await button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   await button.click();
-  await browser.waitUntil(async () => await button.getAttribute('aria-pressed') === 'true' && await button.isEnabled());
+  await browser.waitUntil(async () => await $('.language-menu-trigger').isEnabled());
+  await openToolbarLanguages();
+  await browser.waitUntil(async () => await toolbarLanguageButton(code).getAttribute('aria-checked') === 'true');
 };
 
 module.exports = {
   toolbarLanguageButton,
+  openToolbarLanguages,
   getToolbarLanguages,
   switchToolbarLanguage,
   tabsSelector,

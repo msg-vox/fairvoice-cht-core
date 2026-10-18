@@ -2081,83 +2081,57 @@ mm-sidebar-menu .mat-sidenav-container {
   }
 }
 
-// The header is a sidebar/bottom bar in current navigation. Keep its language
-// controls in the top toolbar and reserve the same bounded space for them.
-.app-root:has(.toolbar-languages) {
-  --toolbar-languages-width: min(35vw, 400px);
+// In current navigation the header is a sidebar, so the language switcher
+// renders in the controls toolbar as a plain icon button, alongside the
+// search and filter controls.
+.tool-bar .inner .toolbar-languages {
+  display: flex;
+  align-items: center;
+  flex: none;
+  order: -1;
+  width: auto;
+}
 
-  .tool-bar > .inner {
-    box-sizing: border-box;
-    padding-inline-end: calc(var(--toolbar-languages-width) + 8px);
+.language-menu-trigger {
+  width: @toolbar-icon-button-size;
+  height: @toolbar-icon-button-size;
+  padding: 0;
+  color: @filter-text-color;
 
-    mm-search-bar,
-    mm-freetext-filter,
-    mm-navigation {
-      min-width: 0;
+  .mat-icon {
+    width: 24px;
+    height: 24px;
+
+    svg {
+      width: 24px;
+      height: 24px;
     }
+  }
 
-    .ellipsis-title {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+  &:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+  }
+
+  &[aria-expanded="true"] {
+    background-color: rgba(0, 0, 0, 0.08);
   }
 }
 
-.toolbar-languages {
-  position: fixed;
-  inset-block-start: 3px;
-  inset-inline-end: 4px;
-  width: var(--toolbar-languages-width);
-  z-index: 4;
-  color: @text-normal-color;
+.language-error {
+  position: absolute;
+  inset-inline-end: 0;
+  width: min(280px, 90vw);
   background: @white;
-  border-radius: @radius-size;
+  padding: 8px;
+  white-space: normal;
+  box-shadow: 0 2px 4px @gray-light;
+}
 
-  .language-buttons {
-    display: flex;
-    gap: 4px;
-    overflow-x: auto;
-    padding: 3px;
-    scroll-padding-inline: 3px;
-    scrollbar-width: thin;
-  }
+.language-menu .mat-mdc-menu-item {
+  white-space: normal;
+  overflow-wrap: anywhere;
 
-  button {
-    flex: 0 0 auto;
-    min-width: 44px;
-    min-height: 44px;
-    padding: 6px 10px;
-    border: 1px solid @gray-light;
-    border-radius: @radius-size;
-    background: @white;
-    color: @text-normal-color;
-    white-space: nowrap;
-
-    &:hover,
-    &.active {
-      background: @gray-light;
-    }
-
-    &.active {
-      font-weight: bold;
-      box-shadow: inset 0 -3px @text-normal-color;
-    }
-
-    &:focus-visible {
-      outline: 2px solid @text-normal-color;
-      outline-offset: -3px;
-    }
-
-    &:disabled {
-      cursor: wait;
-      opacity: 0.6;
-    }
-  }
-
-  .language-error {
-    padding: 8px;
-    white-space: normal;
-    box-shadow: 0 2px 4px @gray-light;
+  &.active .mat-mdc-menu-item-text {
+    font-weight: bold;
   }
 }

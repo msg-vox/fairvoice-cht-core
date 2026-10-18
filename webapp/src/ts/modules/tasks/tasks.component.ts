@@ -23,6 +23,7 @@ import { LineagePipe } from '@mm-pipes/message.pipe';
 import { ResourceIconPipe } from '@mm-pipes/resource-icon.pipe';
 import { TaskDueDatePipe } from '@mm-pipes/date.pipe';
 import { SearchBarComponent } from '@mm-components/search-bar/search-bar.component';
+import { LanguageSwitcherComponent } from '@mm-components/language-switcher/language-switcher.component';
 import { TasksSidebarFilterComponent } from './tasks-sidebar-filter.component';
 
 @Component({
@@ -41,6 +42,7 @@ import { TasksSidebarFilterComponent } from './tasks-sidebar-filter.component';
     TaskDueDatePipe,
     SearchBarComponent,
     TasksSidebarFilterComponent,
+    LanguageSwitcherComponent,
   ],
 })
 export class TasksComponent implements OnInit, AfterViewInit, OnDestroy {

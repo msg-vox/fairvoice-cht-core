@@ -6,11 +6,12 @@ import { GlobalActions } from '@mm-actions/global';
 import { Selectors } from '@mm-selectors/index';
 import { ToolBarComponent } from '@mm-components/tool-bar/tool-bar.component';
 import { AnalyticsFilterComponent } from '@mm-components/filters/analytics-filter/analytics-filter.component';
+import { LanguageSwitcherComponent } from '@mm-components/language-switcher/language-switcher.component';
 import { RouterOutlet } from '@angular/router';
 
 @Component({
   templateUrl: './analytics.component.html',
-  imports: [ToolBarComponent, AnalyticsFilterComponent, RouterOutlet]
+  imports: [ToolBarComponent, AnalyticsFilterComponent, RouterOutlet, LanguageSwitcherComponent]
 })
 export class AnalyticsComponent implements OnInit, OnDestroy {
   private globalActions;

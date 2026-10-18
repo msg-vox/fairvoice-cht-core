@@ -513,7 +513,14 @@
   }
 }
 
-// Legacy navigation has a separate navigation row above the controls toolbar.
+// Legacy navigation keeps the language switcher in the header's top row, so it
+// floats next to the header extras.
 .app-root.old-nav .toolbar-languages {
-  inset-block-start: calc(@top-navbar-height + 8px);
+  position: fixed;
+  inset-block-start: 3px;
+  inset-inline-end: 4px;
+  width: @toolbar-icon-button-size;
+  z-index: 4;
+  background: @white;
+  border-radius: @radius-size;
 }
