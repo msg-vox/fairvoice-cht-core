@@ -5,7 +5,7 @@ import * as moment from 'moment';
 import { AfterViewInit, Component, HostListener, NgZone, OnInit } from '@angular/core';
 import { Store } from '@ngrx/store';
 import { setTheme as setBootstrapTheme } from 'ngx-bootstrap/utils';
-import { combineLatest, take } from 'rxjs';
+import { combineLatest, Subject, take } from 'rxjs';
 
 import { DBSyncService, SyncStatus } from '@mm-services/db-sync.service';
 import { Selectors } from '@mm-selectors/index';
@@ -547,14 +547,31 @@ export class AppComponent implements OnInit, AfterViewInit {
     return this.translationsLoaded
       .then(() => this.jsonFormsService.get())
       .then((jsonForms) => {
-        const jsonFormSummaries = jsonForms.map((jsonForm) => {
-          return {
-            id: jsonForm.code,
-            code: jsonForm.code,
-            title: translateTitle(jsonForm.translation_key, jsonForm.name),
-            icon: jsonForm.icon,
-            subjectKey: jsonForm.subject_key
-          };
+        const xmlForms = new Subject<any[]>();
+        combineLatest([
+          xmlForms,
+          this.store.select(Selectors.getLanguage),
+        ]).subscribe(([xForms]) => {
+          const jsonFormSummaries = jsonForms.map((jsonForm) => {
+            return {
+              id: jsonForm.code,
+              code: jsonForm.code,
+              title: translateTitle(jsonForm.translation_key, jsonForm.name),
+              icon: jsonForm.icon,
+              subjectKey: jsonForm.subject_key
+            };
+          });
+          const xFormSummaries = xForms.map(function(xForm) {
+            return {
+              id: xForm._id,
+              code: xForm.internalId,
+              title: translateTitle(xForm.translation_key, xForm.title),
+              icon: xForm.icon,
+              subjectKey: xForm.subject_key
+            };
+          });
+          const forms = xFormSummaries.concat(jsonFormSummaries);
+          this.globalActions.setForms(forms);
         });
         this.xmlFormsService.subscribe(
           'FormsFilter',
@@ -563,17 +580,7 @@ export class AppComponent implements OnInit, AfterViewInit {
             if (err) {
               return console.error('Error fetching form definitions', err);
             }
-            const xFormSummaries = xForms.map(function(xForm) {
-              return {
-                id: xForm._id,
-                code: xForm.internalId,
-                title: translateTitle(xForm.translation_key, xForm.title),
-                icon: xForm.icon,
-                subjectKey: xForm.subject_key
-              };
-            });
-            const forms = xFormSummaries.concat(jsonFormSummaries);
-            this.globalActions.setForms(forms);
+            xmlForms.next(xForms);
           }
         );
 

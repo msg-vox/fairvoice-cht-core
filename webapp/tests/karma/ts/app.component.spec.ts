@@ -467,6 +467,36 @@ describe('AppComponent', () => {
     expect(trainingCardsService.initTrainingCards.calledOnce).to.be.true;
   });
 
+  it('retranslates XML and JSON form titles when the language changes without reloading forms', async () => {
+    const language = store.overrideSelector(Selectors.getLanguage, { code: 'en' });
+    jsonFormsService.get.resolves([
+      { code: 'json', translation_key: 'json.title' },
+      { code: 'legacy', name: [{ locale: 'en', content: 'Legacy' }, { locale: 'fr', content: 'Ancien' }] },
+    ]);
+    const ngxTranslate = TestBed.inject(TranslateService);
+    ngxTranslate.use('en');
+    translateService.instant.callsFake(key => `en:${key}`);
+    await getComponent();
+    await component.setupPromise;
+    xmlFormsService.subscribe.firstCall.args[2](null, [
+      { _id: 'form:xml', internalId: 'xml', translation_key: 'xml.title' },
+    ]);
+    const initialForms = globalActions.setForms.lastCall.args[0];
+    expect(initialForms.map(form => form.title)).to.deep.equal(['en:xml.title', 'en:json.title', 'Legacy']);
+
+    ngxTranslate.use('fr');
+    translateService.instant.callsFake(key => `fr:${key}`);
+    language.setResult({ code: 'fr' });
+    store.refreshState();
+
+    const translatedForms = globalActions.setForms.lastCall.args[0];
+    expect(translatedForms).not.to.equal(initialForms);
+    expect(translatedForms.map(form => form.title)).to.deep.equal(['fr:xml.title', 'fr:json.title', 'Ancien']);
+    expect(initialForms.map(form => form.title)).to.deep.equal(['en:xml.title', 'en:json.title', 'Legacy']);
+    expect(jsonFormsService.get.calledOnce).to.be.true;
+    expect(xmlFormsService.subscribe.calledOnce).to.be.true;
+  });
+
   it('should set privacy policy and start modals if privacy accepted', async () => {
     privacyPoliciesService.hasAccepted.resolves({ privacyPolicy: 'The policy...', accepted: false });
     await getComponent();

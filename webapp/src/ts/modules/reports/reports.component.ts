@@ -191,9 +191,17 @@ export class ReportsComponent implements OnInit, AfterViewInit, OnDestroy {
       showContent,
       enketoEdited,
     ]) => {
-      this.reportsList = reportsList;
-      this.listContains = listContains;
       this.forms = forms;
+      this.reportsList = reportsList.map(report => {
+        const form = _find(forms, { code: report.form });
+        return {
+          ...report,
+          summary: form ? form.title : report.form,
+          icon: form && form.icon,
+          heading: this.getReportHeading(form, report),
+        };
+      });
+      this.listContains = listContains;
       this.filters = filters;
       this.showContent = showContent;
       this.enketoEdited = enketoEdited;
