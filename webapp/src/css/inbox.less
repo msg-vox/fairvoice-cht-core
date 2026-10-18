@@ -2080,3 +2080,78 @@ mm-sidebar-menu .mat-sidenav-container {
     display: none;
   }
 }
+
+// The header is a sidebar/bottom bar in current navigation. Keep its language
+// controls in the top toolbar and reserve the same bounded space for them.
+.app-root:has(.toolbar-languages) {
+  --toolbar-languages-width: min(35vw, 400px);
+
+  .tool-bar > .inner {
+    box-sizing: border-box;
+    padding-inline-end: calc(var(--toolbar-languages-width) + 8px);
+
+    .ellipsis-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+}
+
+.toolbar-languages {
+  position: fixed;
+  inset-block-start: 3px;
+  inset-inline-end: 4px;
+  width: var(--toolbar-languages-width);
+  z-index: 4;
+  color: @text-normal-color;
+  background: @white;
+  border-radius: @radius-size;
+
+  .language-buttons {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 3px;
+    scroll-padding-inline: 3px;
+    scrollbar-width: thin;
+  }
+
+  button {
+    flex: 0 0 auto;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 6px 10px;
+    border: 1px solid @gray-light;
+    border-radius: @radius-size;
+    background: @white;
+    color: @text-normal-color;
+    white-space: nowrap;
+
+    &:hover,
+    &.active {
+      background: @gray-light;
+    }
+
+    &.active {
+      font-weight: bold;
+      box-shadow: inset 0 -3px @text-normal-color;
+    }
+
+    &:focus-visible {
+      outline: 2px solid @text-normal-color;
+      outline-offset: -3px;
+    }
+
+    &:disabled {
+      cursor: wait;
+      opacity: 0.6;
+    }
+  }
+
+  .language-error {
+    padding: 8px;
+    white-space: normal;
+    box-shadow: 0 2px 4px @gray-light;
+  }
+}

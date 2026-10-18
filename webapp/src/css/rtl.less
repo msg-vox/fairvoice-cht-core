@@ -206,3 +206,9 @@
     margin-left: 10px;
   }
 }
+
+// Language names retain their own direction even under the global RTL rule.
+.app-root .toolbar-languages bdi[dir="auto"] {
+  direction: initial;
+  unicode-bidi: plaintext;
+}
