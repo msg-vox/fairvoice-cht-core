@@ -132,6 +132,36 @@ describe('Language services', () => {
       expect((<any>$.fn).datepicker.defaults.language).to.equal('nl');
     });
 
+    ['translations', 'cookie', 'date formatting'].forEach(stage => {
+      it(`can restore locale state after failure during ${stage}`, async () => {
+        const error = new Error(stage);
+        if (stage === 'translations') {
+          ngxTranslateService.use.onFirstCall().returns({ toPromise: sinon.stub().rejects(error) });
+        } else if (stage === 'cookie') {
+          languageCookieService.set.onFirstCall().throws(error);
+        } else {
+          formatDateService.init.onFirstCall().rejects(error);
+        }
+
+        await expect(setLanguageService.set('fr')).to.be.rejectedWith(error);
+        expect((<any>$.fn).datepicker.defaults.language).to.equal('fr');
+        expect(setLanguageAction).not.to.have.been.called;
+        expect(telemetryService.record).not.to.have.been.called;
+        if (stage === 'date formatting') {
+          expect(languageCookieService.set).to.have.been.calledOnceWithExactly('fr');
+        }
+
+        await setLanguageService.set('en');
+        expect((<any>moment.locale).lastCall.args).to.deep.equal([['en', 'en']]);
+        expect((<any>$.fn).datepicker.defaults.language).to.equal('en');
+        expect(ngxTranslateService.use.lastCall.args).to.deep.equal(['en']);
+        expect(languageCookieService.set.lastCall.args).to.deep.equal(['en']);
+        expect(setLanguageAction).to.have.been.calledOnce;
+        expect(setLanguageAction.firstCall.args[0].code).to.equal('en');
+        expect(telemetryService.record).to.have.been.calledOnceWithExactly('user_settings:language:en');
+      });
+    });
+
     it('should skip setting cookie if false param is passed', async () => {
       const newLocale = 'other locale';
       await setLanguageService.set(newLocale, false);
