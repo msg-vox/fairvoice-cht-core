@@ -1,4 +1,5 @@
 <li [attr.data-record-id]="id"
+    [class.inert]="inert"
     [class.selected] = "selected"
     [class.primary]="primary"
     [class.unread]="unread"
@@ -8,8 +9,9 @@
     [class.overdue]="overdue"
     class="content-row"
 >
-  <a [routerLink]="route" [state]="{ tab: tab, id: id }">
-    <div><input type="checkbox" [checked]="selected"></div>
+  <a [routerLink]="inert ? null : route" [state]="{ tab: tab, id: id }"
+    [attr.role]="inert ? 'presentation' : null" [attr.tabindex]="inert ? -1 : null">
+    <div *ngIf="!inert"><input type="checkbox" [checked]="selected"></div>
     <div *ngIf="icon" class="icon" [innerHTML]="icon | resourceIcon"></div>
     <div class="content">
       <div class="heading">

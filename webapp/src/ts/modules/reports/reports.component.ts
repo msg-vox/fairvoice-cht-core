@@ -43,6 +43,10 @@ const CAN_DEFAULT_FACILITY_FILTER = 'can_default_facility_filter';
 
 @Component({
   templateUrl: './reports.component.html',
+  styles: [`
+    .content-row.inert, .content-row.inert > a { cursor: default; }
+    .content-row.inert:hover { border-left-color: transparent !important; }
+  `],
   imports: [
     ToolBarComponent,
     NgIf,
@@ -89,6 +93,7 @@ export class ReportsComponent implements OnInit, AfterViewInit, OnDestroy {
   hasReports?: boolean;
   selectMode = false;
   selectModeAvailable = false;
+  canViewReportDetails = false;
   showContent?: boolean;
   enketoEdited?: boolean;
   isSidebarFilterOpen = false;
@@ -153,7 +158,17 @@ export class ReportsComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private async checkPermissions() {
-    this.selectModeAvailable = await this.authService.has(['can_edit', 'can_bulk_delete_reports']);
+    this.canViewReportDetails = false;
+    this.selectModeAvailable = false;
+    try {
+      this.canViewReportDetails = await this.authService.has('can_view_report_details');
+      this.selectModeAvailable = this.canViewReportDetails &&
+        await this.authService.has(['can_edit', 'can_bulk_delete_reports']);
+    } catch (error) {
+      this.canViewReportDetails = false;
+      this.selectModeAvailable = false;
+      console.error('Error checking report permissions', error);
+    }
     const isAdmin = this.sessionService.isAdmin();
     this.canDefaultFilter = !isAdmin && this.isOnlineOnly && await this.authService.has(CAN_DEFAULT_FACILITY_FILTER);
   }
@@ -424,6 +439,9 @@ export class ReportsComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private setSelectMode() {
+    if (!this.canViewReportDetails || !this.selectModeAvailable) {
+      return;
+    }
     if (this.selectMode && !this.selectedReports?.length) {
       this.globalActions.setSelectMode(false);
       return;
@@ -445,7 +463,7 @@ export class ReportsComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   selectReport(report) {
-    if (!report?._id) {
+    if (!this.canViewReportDetails || !this.selectModeAvailable || !report?._id) {
       return;
     }
 
@@ -466,7 +484,7 @@ export class ReportsComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async selectAllReports() {
-    if (this.areAllReportsSelected()) {
+    if (!this.canViewReportDetails || !this.selectModeAvailable || this.areAllReportsSelected()) {
       return;
     }
 
@@ -482,7 +500,13 @@ export class ReportsComponent implements OnInit, AfterViewInit, OnDestroy {
         this.filters,
         { limit: this.LIMIT_SELECT_ALL_REPORTS, hydrateContactNames: true }
       );
+      if (!this.canViewReportDetails || !this.selectModeAvailable) {
+        return;
+      }
       const preparedReports = await this.prepareReports(reports, true);
+      if (!this.canViewReportDetails || !this.selectModeAvailable) {
+        return;
+      }
       this.totalReportsCount = preparedReports.length;
       this.reportsActions.setSelectedReports(preparedReports);
       this.globalActions.unsetComponents();
@@ -506,7 +530,7 @@ export class ReportsComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   bulkDeleteReports() {
-    if (!this.selectedReports?.length) {
+    if (!this.canViewReportDetails || !this.selectModeAvailable || !this.selectedReports?.length) {
       return;
     }
 

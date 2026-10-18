@@ -1,17 +1,17 @@
 <ng-container>
-  <div class="empty-selection" *ngIf="loadingContent && !selectMode">
+  <div class="empty-selection" *ngIf="canViewReportDetails && loadingContent && !selectMode">
     <div>
       <div class="loader"></div>
     </div>
   </div>
 
-  <div class="empty-selection" *ngIf="!loadingContent && !selectedReports?.length">
+  <div class="empty-selection" *ngIf="!canViewReportDetails || (!loadingContent && !selectedReports?.length)">
     <div>{{'No report selected' | translate }}</div>
   </div>
 
   <div id="reports-content"
     class="report-wrap"
-    *ngIf="selectMode || (!loadingContent && selectedReports?.length && selectedReports[0]?.doc?.form !== undefined)">
+    *ngIf="canViewReportDetails && (selectMode || (!loadingContent && selectedReports?.length && selectedReports[0]?.doc?.form !== undefined))">
 
     <mm-fast-action-button [fastActions]="fastActionList"></mm-fast-action-button>
 

@@ -4,7 +4,7 @@ import { provideMockStore, MockStore } from '@ngrx/store/testing';
 import { of } from 'rxjs';
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, DefaultUrlSerializer, Router } from '@angular/router';
 import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
 
 import { ContactsContentComponent } from '@mm-modules/contacts/contacts-content.component';
@@ -55,6 +55,7 @@ describe('Contacts content component', () => {
   let searchTelemetryService;
   let mutingTransition;
   let settings;
+  let authService;
 
   beforeEach(waitForAsync(() => {
     changesService = { subscribe: sinon.stub().returns({ unsubscribe: sinon.stub() }) };
@@ -63,6 +64,7 @@ describe('Contacts content component', () => {
       isRelevantChange: sinon.stub(),
       isDeleted: sinon.stub(),
     };
+    authService = { has: sinon.stub().resolves(true) };
     settings = {};
     settingsService = { get: sinon.stub().resolves(settings) };
     xmlFormsService = { subscribe: sinon.stub().returns({ unsubscribe: sinon.stub() }) };
@@ -111,7 +113,12 @@ describe('Contacts content component', () => {
       { selector: Selectors.getFilters, value: {} },
     ];
     activatedRoute = { params: of({}), snapshot: { params: {} } };
-    router = { navigate: sinon.stub(), events: { pipe: sinon.stub().returns({ subscribe: sinon.stub() }) } };
+    router = {
+      navigate: sinon.stub(),
+      createUrlTree: commands => new DefaultUrlSerializer().parse(commands.join('/').replace(/^\/\//, '/')),
+      serializeUrl: tree => new DefaultUrlSerializer().serialize(tree),
+      events: { pipe: sinon.stub().returns({ subscribe: sinon.stub() }) },
+    };
     responsiveService = { isMobile: sinon.stub() };
 
     return TestBed
@@ -144,7 +151,7 @@ describe('Contacts content component', () => {
           { provide: MutingTransition, useValue: mutingTransition },
           { provide: FastActionButtonService, useValue: fastActionButtonService },
           { provide: SearchTelemetryService, useValue: searchTelemetryService },
-          { provide: AuthService, useValue: { has: sinon.stub() } },
+          { provide: AuthService, useValue: authService },
           { provide: MatBottomSheet, useValue: { open: sinon.stub() } },
           { provide: MatDialog, useValue: { open: sinon.stub() } },
         ]
@@ -161,6 +168,45 @@ describe('Contacts content component', () => {
   afterEach(() => {
     store.resetSelectors();
     sinon.restore();
+  });
+
+  describe('report detail links', () => {
+    const renderReport = () => {
+      component.filteredReports = [{ _id: 'report-1', reported_date: Date.now(), form: 'test' }];
+      fixture.detectChanges();
+      return fixture.nativeElement.querySelector('.reports mm-content-row');
+    };
+
+    it('preserves authorized report links', () => {
+      expect(component.canViewReportDetails).to.be.true;
+      expect(authService.has.calledWith('can_view_report_details')).to.be.true;
+      expect(renderReport().querySelector('a').getAttribute('href')).to.equal('/reports/report-1');
+    });
+
+    it('preserves summaries without navigation when detail permission is denied', fakeAsync(() => {
+      authService.has.withArgs('can_view_report_details').resolves(false);
+      component.ngOnInit();
+      flush();
+      const row = renderReport();
+      expect(row).to.exist;
+      expect(row.querySelector('a').hasAttribute('href')).to.be.false;
+      expect(row.querySelector('a').tabIndex).to.equal(-1);
+      expect(row.querySelector('input')).to.equal(null);
+    }));
+
+    it('fails closed while permission resolves or fails', fakeAsync(() => {
+      let rejectPermission;
+      authService.has.withArgs('can_view_report_details').returns(new Promise((resolve, reject) => {
+        rejectPermission = reject;
+      }));
+      component.ngOnInit();
+      expect(renderReport().querySelector('a').hasAttribute('href')).to.be.false;
+      sinon.stub(console, 'error');
+      rejectPermission(new Error('permission lookup failed'));
+      flush();
+      expect(component.canViewReportDetails).to.be.false;
+      expect(renderReport().querySelector('a').hasAttribute('href')).to.be.false;
+    }));
   });
 
   it('should create ContactsContentComponent', () => {

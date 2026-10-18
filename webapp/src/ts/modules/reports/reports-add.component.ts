@@ -4,6 +4,7 @@ import { Store } from '@ngrx/store';
 import { ActivatedRoute, Router } from '@angular/router';
 import { isEqual as _isEqual } from 'lodash-es';
 
+import { AuthService } from '@mm-services/auth.service';
 import { DbService } from '@mm-services/db.service';
 import { FileReaderService } from '@mm-services/file-reader.service';
 import { GetReportContentService } from '@mm-services/get-report-content.service';
@@ -33,6 +34,7 @@ export class ReportsAddComponent implements OnInit, OnDestroy, AfterViewInit {
   subscription: Subscription = new Subscription();
 
   constructor(
+    private readonly authService:AuthService,
     private readonly store:Store,
     private readonly dbService:DbService,
     private readonly fileReaderService:FileReaderService,
@@ -119,13 +121,16 @@ export class ReportsAddComponent implements OnInit, OnDestroy, AfterViewInit {
   private setCancelCallback() {
     this.routeSnapshot = this.route.snapshot;
     if (this.routeSnapshot.params && (this.routeSnapshot.params.reportId || this.routeSnapshot.params.formId)) {
-      const cancelCallback = (router:Router, routeSnapshot) => {
-        router.navigate(['/reports', routeSnapshot?.params?.reportId || '']);
-      };
-      this.globalActions.setCancelCallback(cancelCallback.bind({}, this.router, this.routeSnapshot));
+      const reportId = this.routeSnapshot.params.reportId || '';
+      this.globalActions.setCancelCallback(() => this.navigateToReport(reportId));
     } else {
       this.globalActions.clearNavigation();
     }
+  }
+
+  private async navigateToReport(reportId) {
+    const canViewReportDetails = await this.authService.has('can_view_report_details').catch(() => false);
+    return this.router.navigate(canViewReportDetails ? ['/reports', reportId] : ['/reports']);
   }
 
   private reset() {
@@ -155,7 +160,13 @@ export class ReportsAddComponent implements OnInit, OnDestroy, AfterViewInit {
       .getSelected()
       .then((model:any) => {
         console.debug('setting selected', model);
-        this.reportsActions.openReportContent(model);
+        if (this.routeSnapshot.params.reportId) {
+          this.reportsActions.openReportContent(model);
+        } else {
+          this.reportsActions.setSelectedReport(model);
+          this.reportsActions.setTitle(model);
+          this.globalActions.setShowContent(true);
+        }
         this.globalActions.setLoadingContent(true);
 
         return Promise
@@ -332,7 +343,7 @@ export class ReportsAddComponent implements OnInit, OnDestroy, AfterViewInit {
 
     this.globalActions.setEnketoSavingStatus(true);
     this.resetFormError();
-    const reportId = this.selectedReport?.doc?._id;
+    const reportId = this.routeSnapshot.params.reportId;
 
     return this.formService
       .save(this.form, this.geoHandle, reportId)
@@ -342,7 +353,7 @@ export class ReportsAddComponent implements OnInit, OnDestroy, AfterViewInit {
         const snackBarTranslationKey = this.routeSnapshot.params.reportId ? 'report.updated' : 'report.created';
         this.globalActions.setSnackbarContent(this.translateService.instant(snackBarTranslationKey));
         this.globalActions.setEnketoEditedStatus(false);
-        this.router.navigate(['/reports', docs[0]._id]);
+        return this.navigateToReport(docs[0]._id);
       })
       .then(() => {
         this.trackSave?.stop({

@@ -3,11 +3,14 @@ import { provideMockStore } from '@ngrx/store/testing';
 import { RouterTestingModule } from '@angular/router/testing';
 import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { Store } from '@ngrx/store';
 import { Subject } from 'rxjs';
+import { globalReducer } from '@mm-reducers/global';
 import { expect } from 'chai';
 import sinon from 'sinon';
 
 import { ReportsAddComponent } from '@mm-modules/reports/reports-add.component';
+import { AuthService } from '@mm-services/auth.service';
 import { DbService } from '@mm-services/db.service';
 import { FileReaderService } from '@mm-services/file-reader.service';
 import { GetReportContentService } from '@mm-services/get-report-content.service';
@@ -24,6 +27,7 @@ import { PerformanceService } from '@mm-services/performance.service';
 describe('Reports Add Component', () => {
   let component:ReportsAddComponent;
   let fixture: ComponentFixture<ReportsAddComponent>;
+  let authService;
   let dbService;
   let fileReaderService;
   let getReportContentService;
@@ -40,6 +44,7 @@ describe('Reports Add Component', () => {
   let error;
 
   beforeEach(waitForAsync(() => {
+    authService = { has: sinon.stub().resolves(true) };
     dbService = { getAttachment: sinon.stub() };
     fileReaderService = { base64: sinon.stub() };
     getReportContentService = { getReportContent: sinon.stub().resolves() };
@@ -80,6 +85,7 @@ describe('Reports Add Component', () => {
         ],
         providers: [
           provideMockStore({ selectors: mockedSelectors }),
+          { provide: AuthService, useValue: authService },
           { provide: DbService, useValue: { get: () => dbService } },
           { provide: FileReaderService, useValue: fileReaderService },
           { provide: GetReportContentService, useValue: getReportContentService },
@@ -115,7 +121,7 @@ describe('Reports Add Component', () => {
       expect(spy.callCount).to.equal(2);
     });
 
-    it('should set cancel callback when route loads a new report', () => {
+    it('should set cancel callback when route loads a new report', async () => {
       route.snapshot.params = { formId: 'some_form' };
       const setCancelCallback = sinon.stub(GlobalActions.prototype, 'setCancelCallback');
       const clearCancelCallback = sinon.stub(GlobalActions.prototype, 'clearNavigation');
@@ -124,12 +130,12 @@ describe('Reports Add Component', () => {
       expect(clearCancelCallback.callCount).to.equal(0);
       expect(router.navigate.callCount).to.equal(0);
       const callback = setCancelCallback.args[0][0];
-      callback();
+      await callback();
       expect(router.navigate.callCount).to.equal(1);
       expect(router.navigate.args[0]).to.deep.equal([['/reports', '']]);
     });
 
-    it('should set cancel callback when route loads an existent report', () => {
+    it('should set cancel callback when route loads an existent report', async () => {
       route.snapshot.params = { reportId: 'report_id' };
       const setCancelCallback = sinon.stub(GlobalActions.prototype, 'setCancelCallback');
       const clearCancelCallback = sinon.stub(GlobalActions.prototype, 'clearNavigation');
@@ -138,7 +144,7 @@ describe('Reports Add Component', () => {
       expect(clearCancelCallback.callCount).to.equal(0);
       expect(router.navigate.callCount).to.equal(0);
       const callback = setCancelCallback.args[0][0];
-      callback();
+      await callback();
       expect(router.navigate.callCount).to.equal(1);
       expect(router.navigate.args[0]).to.deep.equal([['/reports', 'report_id']]);
     });
@@ -181,7 +187,8 @@ describe('Reports Add Component', () => {
       component.enketoError = 'some_error';
       route.params.next({ formId: 'otherform' });
       tick();
-      expect(openReportContentStub.calledOnce).to.be.true;
+      expect(openReportContentStub.notCalled).to.be.true;
+      expect(xmlFormsService.getFormConfig.lastCall.args).to.deep.equal(['report', 'some_form']);
       expect(setEnketoErrorStub.calledOnce).to.be.true;
       // the 2 count is because we've actually subscribed to the params change twice by calling ngOnInit manually
     }));
@@ -194,6 +201,9 @@ describe('Reports Add Component', () => {
 
         route.snapshot.params = { formId: 'my_form' };
         const openReportContentStub = sinon.stub(ReportsActions.prototype, 'openReportContent');
+        const setSelectedReport = sinon.spy(ReportsActions.prototype, 'setSelectedReport');
+        const setTitle = sinon.spy(ReportsActions.prototype, 'setTitle');
+        const setShowContent = sinon.spy(GlobalActions.prototype, 'setShowContent');
         getReportContentService.getReportContent.resolves();
         const formConfig = { doc: { _id: 'my_form', some: 'content' } };
         const renderedForm = { rendered: 'form', model: {}, instance: {} };
@@ -212,8 +222,10 @@ describe('Reports Add Component', () => {
           recordApdex: true,
         });
         expect(geolocationService.init.calledOnce).to.be.true;
-        expect(openReportContentStub.calledOnce).to.be.true;
-        expect(openReportContentStub.args[0]).to.deep.equal([{ formInternalId: 'my_form' }]);
+        expect(openReportContentStub.notCalled).to.be.true;
+        expect(setSelectedReport.calledOnceWithExactly({ formInternalId: 'my_form' })).to.be.true;
+        expect(setTitle.calledOnceWithExactly({ formInternalId: 'my_form' })).to.be.true;
+        expect(setShowContent.calledOnceWithExactly(true)).to.be.true;
         expect(getReportContentService.getReportContent.calledOnce).to.be.true;
         expect(getReportContentService.getReportContent.args[0]).to.deep.equal([undefined]);
         expect(xmlFormsService.getFormConfig.calledOnce).to.be.true;
@@ -541,6 +553,82 @@ describe('Reports Add Component', () => {
     });
   });
 
+  describe('detail navigation authorization', () => {
+    for (const permission of [false, undefined, 'error']) {
+      it(`should return to the list after creation when detail permission is ${permission}`, fakeAsync(() => {
+        const permissionStub = authService.has.withArgs('can_view_report_details');
+        if (permission === 'error') {
+          permissionStub.rejects(new Error('authorization unavailable'));
+        } else {
+          permissionStub.resolves(permission);
+        }
+        const openReportContent = sinon.stub(ReportsActions.prototype, 'openReportContent');
+        const selectReportToOpen = sinon.stub(ReportsActions.prototype, 'selectReportToOpen');
+        const markReportRead = sinon.spy(ReportsActions.prototype, 'markReportRead');
+        const unsetSelected = sinon.spy(GlobalActions.prototype, 'unsetSelected');
+        let globalState = globalReducer(undefined, { type: 'init' });
+        expect(globalState.showContent).to.be.false;
+        const dispatch = sinon.spy(TestBed.inject(Store), 'dispatch');
+        const renderedForm = { rendered: 'creation form' };
+        formService.render.resolves(renderedForm);
+        formService.render.resetHistory();
+        formService.save.resolves([{ _id: 'new_report' }]);
+
+        component.ngAfterViewInit();
+        tick();
+
+        for (const call of dispatch.getCalls()) {
+          globalState = globalReducer(globalState, call.args[0]);
+        }
+        expect(formService.render.calledOnce).to.be.true;
+        expect(formService.render.firstCall.args[0].editing).to.be.false;
+        expect(component.form).to.equal(renderedForm);
+        expect(globalState.showContent).to.be.true;
+        expect(globalState.loadingContent).to.be.false;
+        expect(markReportRead.notCalled).to.be.true;
+        expect(unsetSelected.notCalled).to.be.true;
+
+        component.selectedReport = { doc: { _id: 'stale_report' } };
+        component.save();
+        tick();
+
+        expect(formService.save.calledOnceWithExactly(renderedForm, geoHandle, undefined)).to.be.true;
+        expect(globalState.showContent).to.be.true;
+        expect(router.navigate.args).to.deep.equal([[['/reports']]]);
+        expect(openReportContent.notCalled).to.be.true;
+        expect(selectReportToOpen.notCalled).to.be.true;
+      }));
+
+      it(`should cancel to the list when detail permission is ${permission}`, async () => {
+        const permissionStub = authService.has.withArgs('can_view_report_details');
+        if (permission === 'error') {
+          permissionStub.rejects(new Error('authorization unavailable'));
+        } else {
+          permissionStub.resolves(permission);
+        }
+        route.snapshot.params = { reportId: 'report_id' };
+        const setCancelCallback = sinon.stub(GlobalActions.prototype, 'setCancelCallback');
+        component.ngOnInit();
+        await setCancelCallback.firstCall.args[0]();
+
+        expect(router.navigate.args).to.deep.equal([[['/reports']]]);
+      });
+    }
+
+    it('should wait for authorization before choosing the saved report destination', fakeAsync(() => {
+      let resolvePermission;
+      authService.has.returns(new Promise(resolve => resolvePermission = resolve));
+      formService.save.resolves([{ _id: 'new_report' }]);
+      component.save();
+      tick();
+      expect(router.navigate.notCalled).to.be.true;
+
+      resolvePermission(false);
+      tick();
+      expect(router.navigate.args).to.deep.equal([[['/reports']]]);
+    }));
+  });
+
   describe('save', () => {
     it('should do nothing if already saving', fakeAsync(() => {
       sinon.resetHistory();
@@ -630,7 +718,22 @@ describe('Reports Add Component', () => {
       expect(error.args[0][0]).to.equal('Error submitting form data: ');
     }));
 
-    // todo add tests for editing existent reports when focusing on migrating that
+    it('should save edits using the route reportId even if the selection was cleared or stale', fakeAsync(() => {
+      route.snapshot.params = { reportId: 'edited_report' };
+      component.form = { rendered: 'edit form' };
+      formService.save.resolves([{ _id: 'edited_report' }]);
+
+      for (const selectedReport of [undefined, { doc: { _id: 'stale_report' } }]) {
+        component.selectedReport = selectedReport;
+        component.save();
+        tick();
+
+        expect(formService.save.lastCall.args).to.deep.equal([
+          component.form, geoHandle, 'edited_report'
+        ]);
+        expect(router.navigate.lastCall.args).to.deep.equal([['/reports', 'edited_report']]);
+      }
+    }));
   });
 
   describe('ngOnDestroy', () => {

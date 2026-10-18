@@ -75,7 +75,7 @@ describe('Reports Content Component', () => {
     modalService = { show: sinon.stub() };
     authService = {
       isAdmin: sinon.stub(),
-      has: sinon.stub()
+      has: sinon.stub().resolves(true)
     };
     sessionService = { isAdmin: sinon.stub() };
     searchTelemetryService = { recordReportSearch: sinon.stub() };
@@ -144,6 +144,65 @@ describe('Reports Content Component', () => {
     expect(changesService.subscribe.callCount).to.equal(1);
     expect(activatedRoute.params.subscribe.callCount).to.equal(1);
     expect(spySubscriptionsAdd.callCount).to.equal(5);
+  });
+
+  describe('detail authorization', () => {
+    const report = {
+      _id: 'private-report',
+      expanded: true,
+      doc: { form: 'test' },
+      formatted: { sms_message: { message: 'private answers' } },
+    };
+
+    for (const selectMode of [false, true]) {
+      it(`should hide stale ${selectMode ? 'bulk' : 'single'} details until explicitly granted`, fakeAsync(() => {
+        let resolvePermission;
+        authService.has.withArgs('can_view_report_details')
+          .returns(new Promise(resolve => resolvePermission = resolve));
+        component.ngOnInit();
+        store.overrideSelector(Selectors.getSelectedReport, selectMode ? undefined : report);
+        store.overrideSelector(Selectors.getSelectedReports, selectMode ? [report] : []);
+        store.overrideSelector(Selectors.getSelectMode, selectMode);
+        store.refreshState();
+        fixture.detectChanges();
+
+        expect(fixture.nativeElement.querySelector('#reports-content')).to.equal(null);
+        expect(fixture.nativeElement.textContent).to.contain('No report selected');
+        expect(fixture.nativeElement.textContent).not.to.contain('private answers');
+
+        resolvePermission(true);
+        flush();
+        fixture.detectChanges();
+        expect(fixture.nativeElement.querySelector('#reports-content')).not.to.equal(null);
+        expect(fixture.nativeElement.textContent).to.contain('private answers');
+      }));
+    }
+
+    for (const permission of [false, undefined, 'error']) {
+      it(`should fail closed for detail permission ${permission}`, fakeAsync(() => {
+        const permissionStub = authService.has.withArgs('can_view_report_details');
+        if (permission === 'error') {
+          permissionStub.rejects(new Error('authorization unavailable'));
+        } else {
+          permissionStub.resolves(permission);
+        }
+        component.ngOnInit();
+        store.overrideSelector(Selectors.getSelectedReport, report);
+        store.overrideSelector(Selectors.getSelectedReports, [report]);
+        store.overrideSelector(Selectors.getSelectMode, true);
+        store.refreshState();
+        flush();
+        fixture.detectChanges();
+
+        const selectReport = sinon.stub(ReportsActions.prototype, 'selectReport');
+        const updateSelectedReportsItem = sinon.stub(ReportsActions.prototype, 'updateSelectedReportsItem');
+        component.toggleExpand({ _id: 'another-report' });
+        expect(selectReport.notCalled).to.be.true;
+        expect(updateSelectedReportsItem.notCalled).to.be.true;
+        expect(fixture.nativeElement.querySelector('#reports-content')).to.equal(null);
+        expect(fixture.nativeElement.textContent).not.to.contain('private answers');
+      }));
+    }
   });
 
   describe('Route subscription', () => {
