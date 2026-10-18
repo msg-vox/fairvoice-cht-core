@@ -17,6 +17,7 @@ import { FastAction, FastActionButtonService } from '@mm-services/fast-action-bu
 import { PerformanceService } from '@mm-services/performance.service';
 import { ButtonType, FastActionButtonComponent } from '@mm-components/fast-action-button/fast-action-button.component';
 import { ToolBarComponent } from '@mm-components/tool-bar/tool-bar.component';
+import { LanguageSwitcherComponent } from '@mm-components/language-switcher/language-switcher.component';
 import { MessagesMoreMenuComponent } from '@mm-modules/messages/messages-more-menu.component';
 import { NgClass, NgFor, NgIf } from '@angular/common';
 import { TranslatePipe } from '@ngx-translate/core';
@@ -36,7 +37,8 @@ import { RelativeDatePipe } from '@mm-pipes/date.pipe';
     RouterOutlet,
     TranslatePipe,
     LineagePipe,
-    RelativeDatePipe
+    RelativeDatePipe,
+    LanguageSwitcherComponent,
   ]
 })
 export class MessagesComponent implements OnInit, OnDestroy {

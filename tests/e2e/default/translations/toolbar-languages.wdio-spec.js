@@ -60,7 +60,7 @@ describe('Toolbar languages', () => {
         }, { ignoreReload: true });
         await browser.setCookies({ name: 'locale', value: 'en', path: '/' });
         await browser.refresh();
-        await commonPage.toolbarLanguageButton('en').waitForDisplayed();
+        await commonPage.openToolbarLanguages();
       });
 
       afterEach(async () => {
@@ -81,8 +81,9 @@ describe('Toolbar languages', () => {
         await browser.waitUntil(async () => await $('#reports-tab .button-label').getText() !== previousLabel);
         expect((await browser.getCookies('locale'))[0].value).to.equal('fr');
         await browser.refresh();
+        await commonPage.openToolbarLanguages();
         await browser.waitUntil(async () => {
-          return await commonPage.toolbarLanguageButton('fr').getAttribute('aria-pressed') === 'true';
+          return await commonPage.toolbarLanguageButton('fr').getAttribute('aria-checked') === 'true';
         });
       });
 
@@ -90,7 +91,7 @@ describe('Toolbar languages', () => {
         await utils.updateSettings({
           languages: languages.map(language => ({ ...language, enabled: language.locale !== 'es' })),
         });
-        await commonPage.toolbarLanguageButton('en').waitForDisplayed();
+        await commonPage.openToolbarLanguages();
         expect((await commonPage.getToolbarLanguages()).map(choice => choice.code)).not.to.include('es');
       });
 
@@ -99,8 +100,9 @@ describe('Toolbar languages', () => {
         await browser.throttle('offline');
         await commonPage.switchToolbarLanguage('fr');
         await browser.refresh();
+        await commonPage.openToolbarLanguages();
         await browser.waitUntil(async () => {
-          return await commonPage.toolbarLanguageButton('fr').getAttribute('aria-pressed') === 'true';
+          return await commonPage.toolbarLanguageButton('fr').getAttribute('aria-checked') === 'true';
         });
         expect((await browser.getCookies('locale'))[0].value).to.equal('fr');
       });
@@ -112,12 +114,15 @@ describe('Toolbar languages', () => {
         await english.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         await browser.execute(element => element.focus(), await english);
         await browser.keys('Enter');
-        await browser.waitUntil(async () => await english.getAttribute('aria-pressed') === 'true');
+        await commonPage.openToolbarLanguages();
+        await browser.waitUntil(async () => {
+          return await commonPage.toolbarLanguageButton('en').getAttribute('aria-checked') === 'true';
+        });
         expect(await $('.app-root').getAttribute('dir')).to.equal('ltr');
-        const group = await $('.language-buttons');
+        const group = await $('.language-menu');
         const bounds = await group.getSize();
         const windowSize = await browser.getWindowSize();
-        expect(bounds.width).to.be.at.most(windowSize.width * 0.35 + 1);
+        expect(bounds.width).to.be.at.most(windowSize.width);
       });
 
       it('preserves the open form instance, its language, and unsaved input', async () => {
@@ -139,7 +144,8 @@ describe('Toolbar languages', () => {
       if (!legacy) {
         it('follows language changes from user settings', async () => {
           await userSettingsPage.setLanguage('fr');
-          expect(await commonPage.toolbarLanguageButton('fr').getAttribute('aria-pressed')).to.equal('true');
+          await commonPage.openToolbarLanguages();
+          expect(await commonPage.toolbarLanguageButton('fr').getAttribute('aria-checked')).to.equal('true');
         });
       }
     });

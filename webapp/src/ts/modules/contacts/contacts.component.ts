@@ -27,6 +27,7 @@ import { PerformanceService } from '@mm-services/performance.service';
 import { ButtonType, FastActionButtonComponent } from '@mm-components/fast-action-button/fast-action-button.component';
 import { ToolBarComponent } from '@mm-components/tool-bar/tool-bar.component';
 import { SearchBarComponent } from '@mm-components/search-bar/search-bar.component';
+import { LanguageSwitcherComponent } from '@mm-components/language-switcher/language-switcher.component';
 import { ContactsMoreMenuComponent } from '@mm-modules/contacts/contacts-more-menu.component';
 import { NgFor, NgIf } from '@angular/common';
 import { TranslatePipe } from '@ngx-translate/core';
@@ -48,7 +49,8 @@ import { LocalizeNumberPipe } from '@mm-pipes/number.pipe';
     TranslatePipe,
     ResourceIconPipe,
     DateOfDeathPipe,
-    LocalizeNumberPipe
+    LocalizeNumberPipe,
+    LanguageSwitcherComponent,
   ]
 })
 export class ContactsComponent implements OnInit, OnDestroy {

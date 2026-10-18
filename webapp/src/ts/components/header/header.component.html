@@ -1,21 +1,3 @@
-<div class="toolbar-languages" *ngIf="availableLanguages.length > 1">
-  <div class="language-buttons" role="group" [attr.aria-label]="'Language' | translate" [attr.aria-busy]="languageSwitchPending">
-    <button *ngFor="let language of availableLanguages; trackBy: trackLanguage"
-            type="button"
-            [attr.data-language-code]="language.code"
-            [attr.lang]="language.code"
-            [class.active]="activeLanguage === language.code"
-            [attr.aria-pressed]="activeLanguage === language.code"
-            [disabled]="languageSwitchPending"
-            (click)="switchLanguage(language.code)">
-      <bdi dir="auto">{{ language.name || language.code }}</bdi>
-    </button>
-  </div>
-  <div class="language-error" role="alert" *ngIf="languageSwitchError">
-    {{ 'Error saving settings' | translate }}
-    <span *ngIf="languageRestoreError">{{ 'database_closed.description' | translate }}</span>
-  </div>
-</div>
 <div class="row header">
   <div class="inner">
     <a routerLink="home">

@@ -8,6 +8,7 @@ import { TrainingCardsService, TrainingMaterial } from '@mm-services/training-ca
 import { Selectors } from '@mm-selectors/index';
 import { ScrollLoaderProvider } from '@mm-providers/scroll-loader.provider';
 import { ToolBarComponent } from '@mm-components/tool-bar/tool-bar.component';
+import { LanguageSwitcherComponent } from '@mm-components/language-switcher/language-switcher.component';
 import { NgIf, NgFor } from '@angular/common';
 import { RouterLink, RouterOutlet } from '@angular/router';
 import { MatIcon } from '@angular/material/icon';
@@ -17,7 +18,16 @@ const PAGE_SIZE = 50;
 
 @Component({
   templateUrl: './trainings.component.html',
-  imports: [ToolBarComponent, NgIf, NgFor, RouterLink, MatIcon, RouterOutlet, TranslatePipe]
+  imports: [
+    ToolBarComponent,
+    NgIf,
+    NgFor,
+    RouterLink,
+    MatIcon,
+    RouterOutlet,
+    TranslatePipe,
+    LanguageSwitcherComponent,
+  ]
 })
 export class TrainingsComponent implements OnInit, OnDestroy {
   private readonly globalActions: GlobalActions;

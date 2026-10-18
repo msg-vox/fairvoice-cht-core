@@ -33,6 +33,7 @@ import {
   ReportVerifyValidIconComponent,
   ReportVerifyInvalidIconComponent
 } from '@mm-components/status-icons/status-icons.template';
+import { LanguageSwitcherComponent } from '@mm-components/language-switcher/language-switcher.component';
 import { TranslatePipe } from '@ngx-translate/core';
 import { LineagePipe } from '@mm-pipes/message.pipe';
 import { ResourceIconPipe } from '@mm-pipes/resource-icon.pipe';
@@ -64,7 +65,8 @@ const CAN_DEFAULT_FACILITY_FILTER = 'can_default_facility_filter';
     TranslatePipe,
     LineagePipe,
     ResourceIconPipe,
-    RelativeDatePipe
+    RelativeDatePipe,
+    LanguageSwitcherComponent,
   ]
 })
 export class ReportsComponent implements OnInit, AfterViewInit, OnDestroy {

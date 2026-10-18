@@ -1,0 +1,29 @@
+<div class="toolbar-languages" *ngIf="availableLanguages.length > 1">
+  <button mat-icon-button type="button" class="language-menu-trigger"
+          [matMenuTriggerFor]="languageMenu"
+          [attr.aria-label]="'Language' | translate"
+          [attr.title]="'Language' | translate"
+          [disabled]="languageSwitchPending">
+    <mat-icon>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM18.92 8h-2.95a15.65 15.65 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.92 8zM12 4.04A14.09 14.09 0 0 1 13.91 8h-3.82A14.09 14.09 0 0 1 12 4.04zM4.26 14a8.24 8.24 0 0 1 0-4h3.38a16.52 16.52 0 0 0 0 4H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56A7.99 7.99 0 0 1 5.08 16zm2.95-8H5.08a7.99 7.99 0 0 1 4.33-3.56A15.65 15.65 0 0 0 8.03 8zM12 19.96A14.09 14.09 0 0 1 10.09 16h3.82A14.09 14.09 0 0 1 12 19.96z"/>
+      </svg>
+    </mat-icon>
+  </button>
+  <mat-menu #languageMenu="matMenu" class="language-menu" xPosition="before">
+    <button mat-menu-item *ngFor="let language of availableLanguages; trackBy: trackLanguage"
+            type="button" role="menuitemradio"
+            [attr.data-language-code]="language.code"
+            [attr.lang]="language.code"
+            [class.active]="activeLanguage === language.code"
+            [attr.aria-checked]="activeLanguage === language.code"
+            [disabled]="languageSwitchPending"
+            (click)="switchLanguage(language.code)">
+      <bdi dir="auto">{{ language.name || language.code }}</bdi>
+    </button>
+  </mat-menu>
+  <div class="language-error" role="alert" *ngIf="languageSwitchError">
+    {{ 'Error saving settings' | translate }}
+    <span *ngIf="languageRestoreError">{{ 'database_closed.description' | translate }}</span>
+  </div>
+</div>
