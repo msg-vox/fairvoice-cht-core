@@ -10,6 +10,7 @@ exports.config = Object.assign(wdioBaseConfig.config, {
       './**/*.wdio-spec.js',
       '../default/login/login-logout.wdio-spec.js',
       '../default/navigation/navigation.wdio-spec.js',
+      '../default/translations/toolbar-languages.wdio-spec.js',
       '../default/reports/delete.wdio-spec.js',
       '../default/reports/report-access.wdio-spec.js',
       '../default/enketo/training-cards.wdio-spec.js',

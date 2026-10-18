@@ -623,7 +623,26 @@ const reloadSession = async () => {
   await browser.url('/');
 };
 
+const toolbarLanguageButton = code => $(`.toolbar-languages button[data-language-code="${code}"]`);
+const getToolbarLanguages = async () => {
+  const buttons = await $$('.toolbar-languages button');
+  return Promise.all(buttons.map(async button => ({
+    code: await button.getAttribute('data-language-code'),
+    name: await button.getText(),
+  })));
+};
+const switchToolbarLanguage = async code => {
+  const button = toolbarLanguageButton(code);
+  await button.waitForDisplayed();
+  await button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  await button.click();
+  await browser.waitUntil(async () => await button.getAttribute('aria-pressed') === 'true' && await button.isEnabled());
+};
+
 module.exports = {
+  toolbarLanguageButton,
+  getToolbarLanguages,
+  switchToolbarLanguage,
   tabsSelector,
   fabSelectors,
   getJsonErrorText,
