@@ -248,6 +248,11 @@
       "chw_supervisor",
       "chw"
     ],
+    "can_view_report_details": [
+      "program_officer",
+      "chw_supervisor",
+      "chw"
+    ],
     "can_view_reports_tab": [
       "program_officer",
       "chw_supervisor",

@@ -101,6 +101,7 @@
     "can_view_messages": ["national_admin", "district_admin"],
     "can_view_messages_tab": ["national_admin", "district_admin"],
     "can_view_reports": ["national_admin", "district_admin"],
+    "can_view_report_details": ["national_admin", "district_admin"],
     "can_view_reports_tab": ["national_admin", "district_admin"],
     "can_view_analytics": ["national_admin", "district_admin", "analytics"],
     "can_view_analytics_tab": ["national_admin", "district_admin"],
