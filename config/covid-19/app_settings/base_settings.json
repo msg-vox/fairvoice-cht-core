@@ -141,6 +141,10 @@
       "chw_supervisor",
       "chw"
     ],
+    "can_view_report_details": [
+      "chw_supervisor",
+      "chw"
+    ],
     "can_view_reports_tab": [
       "chw_supervisor",
       "chw"
