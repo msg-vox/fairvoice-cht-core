@@ -177,6 +177,40 @@ describe('Reports Component', () => {
     sinon.restore();
   });
 
+  it('updates report titles when forms arrive after the search and when their language changes', () => {
+    const report = {
+      _id: 'report-1',
+      form: 'community_researcher_demographics',
+      summary: 'community_researcher_demographics',
+      subject: { name: 'Researcher' },
+      read: false,
+      selected: true,
+      expanded: true,
+    };
+    store.overrideSelector(Selectors.getReportsList, [report]);
+    store.refreshState();
+    component.loading = false;
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.summary p').textContent).to.equal(report.form);
+    const searchCount = searchService.search.callCount;
+    const forms = store.overrideSelector(Selectors.getForms, [
+      { code: report.form, title: 'Researcher demographics', icon: 'researcher' },
+    ]);
+    store.refreshState();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.summary p').textContent).to.equal('Researcher demographics');
+
+    forms.setResult([{ code: report.form, title: 'Démographie du chercheur', icon: 'researcher' }]);
+    store.refreshState();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.summary p').textContent).to.equal('Démographie du chercheur');
+    expect(component.reportsList[0]).to.include({
+      heading: 'Researcher', icon: 'researcher', read: false, selected: true, expanded: true,
+    });
+    expect(report.summary).to.equal(report.form);
+    expect(searchService.search.callCount).to.equal(searchCount);
+  });
+
   describe('report detail authorization', () => {
     const renderReport = () => {
       component.loading = false;
