@@ -1,9 +1,9 @@
 <mm-tool-bar title="Responses">
   <mm-search-bar
-    *ngIf="!selectMode"
+    *ngIf="!selectModeAvailable || !selectMode"
     (toggleFilter)="toggleFilter()"
     (search)="search()"
-    [disabled]="selectMode && selectedReports?.length"
+    [disabled]="selectModeAvailable && selectMode && selectedReports?.length"
     [showFilter]="true">
   </mm-search-bar>
   <mm-multiselect-bar *ngIf="selectModeAvailable && selectMode && selectedReports?.length"
@@ -40,10 +40,13 @@
             [attr.data-record-id]="report._id"
             [class.selected-to-view] = "selectedReport?.doc?._id === report._id"
             [class.unread]="!report.read"
+            [class.inert]="!canViewReportDetails"
             (click)="selectReportRow(report)"
             class="content-row">
-            <input type="checkbox" (click)="selectReport(report)" [checked]="selectMode && report.selected">
-            <a [routerLink]="['/reports', report._id]">
+            <input *ngIf="selectModeAvailable" type="checkbox" (click)="selectReport(report)" [checked]="selectMode && report.selected">
+            <a [routerLink]="canViewReportDetails ? ['/reports', report._id] : null"
+              [attr.role]="canViewReportDetails ? null : 'presentation'"
+              [attr.tabindex]="canViewReportDetails ? null : -1">
               <div *ngIf="report.icon" class="icon" [innerHTML]="report.icon | resourceIcon"></div>
               <div class="content">
                 <div class="heading">
@@ -100,7 +103,7 @@
       <mm-reports-sidebar-filter
         class="col-sm-3 sidebar-filter-wrapper"
         (search)="search()"
-        [disabled]="selectMode && selectedReports?.length">
+        [disabled]="selectModeAvailable && selectMode && selectedReports?.length">
       </mm-reports-sidebar-filter>
     </div>
   </div>

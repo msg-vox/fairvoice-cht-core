@@ -26,6 +26,7 @@ import { NgIf, NgClass, NgFor } from '@angular/common';
 import { ErrorLogComponent } from '@mm-components/error-log/error-log.component';
 import { FastActionButtonComponent } from '@mm-components/fast-action-button/fast-action-button.component';
 import { TranslateDirective, TranslatePipe } from '@ngx-translate/core';
+import { AuthService } from '@mm-services/auth.service';
 import { AuthDirective } from '@mm-directives/auth.directive';
 import { ContactProfileImageComponent } from '@mm-components/contact-profile-image/contact-profile-image.component';
 import { ContentRowListItemComponent } from '@mm-components/content-row-list-item/content-row-list-item.component';
@@ -67,6 +68,7 @@ export class ContactsContentComponent implements OnInit, OnDestroy {
   private contactsActions;
 
   private isOnlineOnly;
+  canViewReportDetails = false;
   loadingContent;
   selectedContact;
   contactsLoadingSummary;
@@ -88,6 +90,7 @@ export class ContactsContentComponent implements OnInit, OnDestroy {
   DISPLAY_LIMIT = 50;
 
   constructor(
+    private readonly authService: AuthService,
     private readonly store: Store,
     private readonly route: ActivatedRoute,
     private readonly router: Router,
@@ -109,6 +112,7 @@ export class ContactsContentComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    this.checkReportPermissions();
     this.isOnlineOnly = this.sessionService.isOnlineOnly();
 
     this.subscribeToStore();
@@ -116,6 +120,15 @@ export class ContactsContentComponent implements OnInit, OnDestroy {
     this.subscribeToChanges();
     this.getUserFacility();
     this.resetTaskAndReportsFilter();
+  }
+
+  private async checkReportPermissions() {
+    this.canViewReportDetails = false;
+    try {
+      this.canViewReportDetails = await this.authService.has('can_view_report_details');
+    } catch (error) {
+      console.error('Error checking report permissions', error);
+    }
   }
 
   private resetTaskAndReportsFilter() {

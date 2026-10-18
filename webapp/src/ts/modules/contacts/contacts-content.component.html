@@ -157,7 +157,8 @@
             <ul>
               <mm-content-row *ngFor="let report of filteredReports"
                 [id]="report._id"
-                [route]="['/', 'reports', report._id]"
+                [route]="canViewReportDetails ? ['/', 'reports', report._id] : null"
+                [inert]="!canViewReportDetails"
                 [icon]="report | formIconName:forms"
                 [date]="report.reported_date"
                 [heading]="selectedContact?.children?.length ? report.heading : (report | summary:forms)"

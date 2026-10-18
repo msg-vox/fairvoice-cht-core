@@ -24,6 +24,7 @@ import {
   ReportVerifyValidIconComponent,
   ReportVerifyInvalidIconComponent
 } from '@mm-components/status-icons/status-icons.template';
+import { AuthService } from '@mm-services/auth.service';
 import { AttachmentImageComponent } from '@mm-components/attachment-image/attachment-image.component';
 import { TranslatePipe } from '@ngx-translate/core';
 import { LineagePipe, TitlePipe } from '@mm-pipes/message.pipe';
@@ -54,6 +55,7 @@ export class ReportsContentComponent implements OnInit, OnDestroy {
   subscription: Subscription = new Subscription();
   private globalActions: GlobalActions;
   private reportsActions: ReportsActions;
+  canViewReportDetails = false;
   forms;
   loadingContent;
   selectedReports;
@@ -63,6 +65,7 @@ export class ReportsContentComponent implements OnInit, OnDestroy {
   fastActionList?: FastAction[];
 
   constructor(
+    private readonly authService:AuthService,
     private readonly changesService:ChangesService,
     private readonly store:Store,
     private readonly dbService: DbService,
@@ -80,6 +83,10 @@ export class ReportsContentComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    this.canViewReportDetails = false;
+    this.authService.has('can_view_report_details')
+      .then(granted => this.canViewReportDetails = granted === true)
+      .catch(() => this.canViewReportDetails = false);
     this.subscribeToStore();
     this.watchReportsContentChanges();
 
@@ -201,7 +208,7 @@ export class ReportsContentComponent implements OnInit, OnDestroy {
   }
 
   toggleExpand(report) {
-    if (!this.selectMode || !report?._id) {
+    if (!this.canViewReportDetails || !this.selectMode || !report?._id) {
       return;
     }
 

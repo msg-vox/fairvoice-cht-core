@@ -2,7 +2,7 @@ import { ComponentFixture, fakeAsync, flush, TestBed, waitForAsync } from '@angu
 import { MatIconModule } from '@angular/material/icon';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { DatePipe } from '@angular/common';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, DefaultUrlSerializer, Router } from '@angular/router';
 import { MockStore, provideMockStore } from '@ngrx/store/testing';
 import { RouterTestingModule } from '@angular/router/testing';
 import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
@@ -115,6 +115,8 @@ describe('Reports Component', () => {
     route = { snapshot: { queryParams: { query: '' } } };
     router = {
       navigate: sinon.stub(),
+      createUrlTree: commands => new DefaultUrlSerializer().parse(commands.join('/')),
+      serializeUrl: tree => new DefaultUrlSerializer().serialize(tree),
       events: {
         pipe: sinon.stub().returns({ subscribe: sinon.stub() }),
       },
@@ -175,6 +177,81 @@ describe('Reports Component', () => {
     sinon.restore();
   });
 
+  describe('report detail authorization', () => {
+    const renderReport = () => {
+      component.loading = false;
+      component.reportsList = [{ _id: 'report-1', heading: 'Report heading', summary: 'Summary', read: false }];
+      fixture.detectChanges();
+      return fixture.nativeElement.querySelector('li.content-row');
+    };
+
+    it('keeps denied rows readable but without link, focus or selection controls', () => {
+      const row = renderReport();
+      expect(row.textContent).to.contain('Report heading');
+      expect(row.textContent).to.contain('Summary');
+      expect(row.classList.contains('unread')).to.be.true;
+      expect(row.classList.contains('inert')).to.be.true;
+      expect(row.querySelector('a').hasAttribute('href')).to.be.false;
+      expect(row.querySelector('a').tabIndex).to.equal(-1);
+      expect(row.querySelector('input')).to.equal(null);
+      expect(fixture.nativeElement.querySelector('.select-all')).to.equal(null);
+      expect(fixture.nativeElement.querySelector('mm-search-bar')).to.exist;
+    });
+
+    it('enables links and bulk controls only with explicit grants', async () => {
+      authService.has.resolves(true);
+      await component.ngAfterViewInit();
+      const row = renderReport();
+      expect(row.querySelector('a').getAttribute('href')).to.equal('/reports/report-1');
+      expect(row.querySelector('input')).to.exist;
+      expect(component.selectModeAvailable).to.be.true;
+      expect(authService.has.calledWith(['can_edit', 'can_bulk_delete_reports'])).to.be.true;
+    });
+
+    it('keeps rows inert while authorization is pending and after errors', async () => {
+      let rejectPermission;
+      authService.has.withArgs('can_view_report_details').returns(new Promise((resolve, reject) => {
+        rejectPermission = reject;
+      }));
+      const checking = component.ngAfterViewInit();
+      expect(renderReport().querySelector('a').hasAttribute('href')).to.be.false;
+      sinon.stub(console, 'error');
+      rejectPermission(new Error('permission lookup failed'));
+      await checking;
+      expect(component.canViewReportDetails).to.be.false;
+      expect(component.selectModeAvailable).to.be.false;
+    });
+
+    it('blocks indirect bulk handlers even with stale selected state', async () => {
+      const selectReport = sinon.stub(ReportsActions.prototype, 'selectReport');
+      const addSelectedReport = sinon.stub(ReportsActions.prototype, 'addSelectedReport');
+      const setSelectedReports = sinon.stub(ReportsActions.prototype, 'setSelectedReports');
+      component.selectMode = true;
+      component.selectModeAvailable = true;
+      component.selectedReports = [{ _id: 'stale', doc: { _id: 'stale' } }];
+      searchService.search.resetHistory();
+      component.selectReportRow({ _id: 'report-1' });
+      component.selectReport({ _id: 'report-1' });
+      await component.selectAllReports();
+      component.bulkDeleteReports();
+      expect(selectReport.notCalled).to.be.true;
+      expect(addSelectedReport.notCalled).to.be.true;
+      expect(setSelectedReports.notCalled).to.be.true;
+      expect(searchService.search.notCalled).to.be.true;
+      expect(modalService.show.notCalled).to.be.true;
+    });
+
+    it('does not enable bulk selection with detail permission alone', async () => {
+      authService.has.withArgs('can_view_report_details').resolves(true);
+      await component.ngAfterViewInit();
+      expect(component.canViewReportDetails).to.be.true;
+      expect(component.selectModeAvailable).to.be.false;
+      const selectReport = sinon.stub(ReportsActions.prototype, 'selectReport');
+      component.selectReport({ _id: 'report-1' });
+      expect(selectReport.notCalled).to.be.true;
+    });
+  });
+
   it('should create ReportsComponent', () => {
     expect(component).to.exist;
     expect(component.isSidebarFilterOpen).to.be.false;
@@ -194,7 +271,7 @@ describe('Reports Component', () => {
     expect(component.isSidebarFilterOpen).to.be.false;
     expect(component.selectModeAvailable).to.be.false;
     expect(authService.has.calledTwice).to.be.true;
-    expect(authService.has.args[0][0]).to.have.members([ 'can_edit', 'can_bulk_delete_reports' ]);
+    expect(authService.has.args[0][0]).to.equal('can_view_report_details');
     expect(authService.has.args[1][0]).to.equal('can_default_facility_filter');
     expect(setDefaultFacilityFilterSpy.notCalled).to.be.true;
     expect(searchService.search.calledOnce).to.be.true;
@@ -292,7 +369,7 @@ describe('Reports Component', () => {
         facility: { _id: 'parent', name: 'parent', parent: { _id: 'grandparent' } }
       });
       expect(authService.has.calledTwice).to.be.true;
-      expect(authService.has.args[0][0]).to.have.members([ 'can_edit', 'can_bulk_delete_reports' ]);
+      expect(authService.has.args[0][0]).to.equal('can_view_report_details');
       expect(authService.has.args[1][0]).to.equal('can_default_facility_filter');
       expect(searchService.search.notCalled).to.be.true;
     }));
@@ -311,7 +388,7 @@ describe('Reports Component', () => {
 
       expect(setDefaultFacilityFilter.notCalled).to.be.true;
       expect(authService.has.calledOnce).to.be.true;
-      expect(authService.has.args[0][0]).to.have.members([ 'can_edit', 'can_bulk_delete_reports' ]);
+      expect(authService.has.args[0][0]).to.equal('can_view_report_details');
       expect(searchService.search.calledOnce).to.be.true;
       expect(stopPerformanceTrackStub.callCount).to.equal(2);
       expect(stopPerformanceTrackStub.args[0][0]).to.deep.equal({ name: 'report_list:query', recordApdex: true });
@@ -333,7 +410,7 @@ describe('Reports Component', () => {
 
       expect(setDefaultFacilityFilter.notCalled).to.be.true;
       expect(authService.has.calledOnce).to.be.true;
-      expect(authService.has.args[0][0]).to.have.members([ 'can_edit', 'can_bulk_delete_reports' ]);
+      expect(authService.has.args[0][0]).to.equal('can_view_report_details');
       expect(searchService.search.calledOnce).to.be.true;
       expect(stopPerformanceTrackStub.callCount).to.equal(2);
       expect(stopPerformanceTrackStub.args[0][0]).to.deep.equal({ name: 'report_list:query', recordApdex: true });
@@ -355,7 +432,7 @@ describe('Reports Component', () => {
 
       expect(setDefaultFacilityFilter.notCalled).to.be.true;
       expect(authService.has.calledTwice).to.be.true;
-      expect(authService.has.args[0][0]).to.have.members([ 'can_edit', 'can_bulk_delete_reports' ]);
+      expect(authService.has.args[0][0]).to.equal('can_view_report_details');
       expect(authService.has.args[1][0]).to.equal('can_default_facility_filter');
       expect(searchService.search.calledOnce).to.be.true;
       expect(stopPerformanceTrackStub.callCount).to.equal(2);
@@ -365,6 +442,11 @@ describe('Reports Component', () => {
   });
 
   describe('selectAllReports', () => {
+    beforeEach(() => {
+      component.canViewReportDetails = true;
+      component.selectModeAvailable = true;
+    });
+
     it('should select all when not all reports have been selected yet', async () => {
       const setLoadingContentStub = sinon.stub(GlobalActions.prototype, 'setLoadingContent');
       const unsetComponentsStub = sinon.stub(GlobalActions.prototype, 'unsetComponents');
@@ -494,6 +576,11 @@ describe('Reports Component', () => {
   });
 
   describe('selectReportRow', () => {
+    beforeEach(() => {
+      component.canViewReportDetails = true;
+      component.selectModeAvailable = true;
+    });
+
     it('should not select report when select mode is inactive', () => {
       const selectReport = sinon.stub(ReportsActions.prototype, 'selectReport');
       component.selectMode = false;
@@ -529,6 +616,11 @@ describe('Reports Component', () => {
   });
 
   describe('selectReport', () => {
+    beforeEach(() => {
+      component.canViewReportDetails = true;
+      component.selectModeAvailable = true;
+    });
+
     let addSelectedReport;
     let selectReport;
     let removeSelectedReport;
@@ -598,6 +690,11 @@ describe('Reports Component', () => {
   });
 
   describe('bulkDeleteReports', () => {
+    beforeEach(() => {
+      component.canViewReportDetails = true;
+      component.selectModeAvailable = true;
+    });
+
     it('should not open modal when there are no selected reports', () => {
       component.selectedReports = [];
 
@@ -846,6 +943,11 @@ describe('Reports Component', () => {
   });
 
   describe('setSelectMode', () => {
+    beforeEach(() => {
+      component.canViewReportDetails = true;
+      component.selectModeAvailable = true;
+    });
+
     it('should set select mode and redirect when there are some reports selected', fakeAsync(() => {
       sinon.resetHistory();
       const setSelectMode = sinon.spy(GlobalActions.prototype, 'setSelectMode');

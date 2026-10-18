@@ -80,6 +80,49 @@ describe('Reports More Menu Component', () => {
   }));
 
   describe('displayEditOption', () => {
+    beforeEach(() => {
+      authService.has.withArgs('can_view_report_details').resolves(true);
+    });
+
+    for (const permission of [false, undefined, 'error']) {
+      it(`should hide editing without an explicit detail grant (${permission}) and preserve exports`, fakeAsync(() => {
+        authService.has.withArgs('can_edit').resolves(true);
+        authService.has.withArgs('can_update_reports').resolves(true);
+        const permissionStub = authService.has.withArgs('can_view_report_details');
+        if (permission === 'error') {
+          permissionStub.rejects(new Error('authorization unavailable'));
+        } else {
+          permissionStub.resolves(permission);
+        }
+        authService.any.resolves(true);
+        authService.online.returns(true);
+        component.ngOnInit();
+        store.overrideSelector(Selectors.getSelectedReportDoc, { _id: 'report-1', content_type: 'xml' });
+        store.overrideSelector(Selectors.getSnapshotData, { name: 'reports.detail' });
+        store.refreshState();
+        flush();
+
+        expect(component.displayEditOption()).to.be.false;
+        expect(component.displayExportOption()).to.be.true;
+      }));
+    }
+
+    it('should hide editing while detail authorization is unresolved', fakeAsync(() => {
+      let resolvePermission;
+      authService.has.withArgs('can_edit').resolves(true);
+      authService.has.withArgs('can_update_reports').resolves(true);
+      authService.has.withArgs('can_view_report_details').returns(new Promise(resolve => resolvePermission = resolve));
+      component.ngOnInit();
+      store.overrideSelector(Selectors.getSelectedReportDoc, { _id: 'report-1', content_type: 'xml' });
+      store.overrideSelector(Selectors.getSnapshotData, { name: 'reports.detail' });
+      store.refreshState();
+      flush();
+      expect(component.displayEditOption()).to.be.false;
+
+      resolvePermission(true);
+      flush();
+      expect(component.displayEditOption()).to.be.true;
+    }));
     it('should display edit option when user has all conditions okay', fakeAsync(() => {
       authService.has.withArgs('can_edit').resolves(true);
       authService.has.withArgs('can_update_reports').resolves(true);

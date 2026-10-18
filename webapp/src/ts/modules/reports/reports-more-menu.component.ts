@@ -49,6 +49,7 @@ export class ReportsMoreMenuComponent implements OnInit, OnDestroy {
   private globalActions: GlobalActions;
   private hasExportPermission = false;
   private hasEditPermission = false;
+  private hasViewReportDetailsPermission = false;
   private hasDeletePermission = false;
   private hasVerifyPermission = false;
   private hasEditVerifyPermission = false;
@@ -130,12 +131,16 @@ export class ReportsMoreMenuComponent implements OnInit, OnDestroy {
   }
 
   private async checkPermissions() {
+    this.hasViewReportDetailsPermission = false;
     this.hasEditPermission = await this.authService.has('can_edit');
     this.hasUpdatePermission = await this.authService.has('can_update_reports');
     this.hasDeletePermission = await this.authService.has('can_delete_reports');
     this.hasExportPermission = await this.authService.any([[ 'can_export_all' ], [ 'can_export_messages' ]]);
     this.hasVerifyPermission = await this.authService.has('can_verify_reports');
     this.hasEditVerifyPermission = await this.authService.has('can_edit_verification');
+    this.hasViewReportDetailsPermission = await this.authService
+      .has('can_view_report_details')
+      .catch(() => false);
   }
 
   deleteReport() {
@@ -157,6 +162,7 @@ export class ReportsMoreMenuComponent implements OnInit, OnDestroy {
       && !this.loadingContent
       && this.hasEditPermission
       && this.hasUpdatePermission
+      && this.hasViewReportDetailsPermission
       && this.snapshotData?.name === 'reports.detail'
       && this.selectedReportDoc?.content_type === 'xml';
   }

@@ -14,6 +14,10 @@ import { LocalizeNumberPipe } from '@mm-pipes/number.pipe';
 @Component({
   selector: '<mm-content-row>',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: [`
+    .content-row.inert, .content-row.inert > a { cursor: default; }
+    .content-row.inert:hover { border-left-color: transparent !important; }
+  `],
   templateUrl: './content-row-list-item.component.html',
   imports: [
     RouterLink,
@@ -31,6 +35,7 @@ import { LocalizeNumberPipe } from '@mm-pipes/number.pipe';
   ]
 })
 export class ContentRowListItemComponent {
+  @Input() inert = false;
   // string: (required) the _id of the doc
   @Input() id;
   // string: (optional) the name of the route to link to

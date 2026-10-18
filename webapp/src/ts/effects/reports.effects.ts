@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { Store } from '@ngrx/store';
 import { Actions, ofType, createEffect } from '@ngrx/effects';
-import { of } from 'rxjs';
+import { combineLatest, firstValueFrom, of } from 'rxjs';
 import { exhaustMap, filter, withLatestFrom, concatMap, tap } from 'rxjs/operators';
 
 import { Actions as ReportActionList, ReportsActions } from '@mm-actions/reports';
@@ -41,12 +41,32 @@ export class ReportsEffects {
     this.servicesActions = new ServicesActions(store);
   }
 
+  private async canViewReportDetails(): Promise<boolean> {
+    try {
+      if (await this.authService.has(['can_view_reports', 'can_view_report_details'])) {
+        return true;
+      }
+    } catch (error) {
+      console.error('Error authorizing report details', error);
+    }
+
+    this.reportActions.clearSelection();
+    this.reportActions.setVerifyingReport(false);
+    this.globalActions.setSelectMode(false);
+    this.globalActions.unsetSelected();
+    this.trackOpenReport = null;
+    return false;
+  }
+
   openReportContent = createEffect(() => {
     return this.actions$.pipe(
       ofType(ReportActionList.openReportContent),
       filter(({ payload: { report } }) => !!report),
       withLatestFrom(this.store.select(Selectors.getSelectedReport)),
-      exhaustMap(([{ payload: { report } }, selectedReport]) => {
+      concatMap(async ([{ payload: { report } }, selectedReport]) => {
+        if (!await this.canViewReportDetails()) {
+          return;
+        }
         const model = { ...report };
         if (selectedReport?._id !== report?.doc?._id) {
           this.reportActions.setVerifyingReport(false);
@@ -69,7 +89,7 @@ export class ReportsEffects {
           this.trackOpenReport = null;
         }
 
-        return of(model);
+        return model;
       }),
     );
   }, { dispatch: false });
@@ -78,18 +98,22 @@ export class ReportsEffects {
     return this.actions$.pipe(
       ofType(ReportActionList.selectReportToOpen),
       filter(({ payload: { reportId } }) => !!reportId),
-      exhaustMap(({ payload: { reportId, silent } }) => {
+      concatMap(async ({ payload: { reportId, silent } }) => {
+        if (!await this.canViewReportDetails()) {
+          return;
+        }
+
         this.trackOpenReport = this.performanceService.track();
         if (!silent) {
           this.globalActions.setLoadingShowContent(reportId);
         }
-        return of(this.reportViewModelGeneratorService
-          .get(reportId)
-          .then(report => this.reportActions.openReportContent(report))
-          .catch(error => {
-            console.error('Error selecting report to open', error);
-            this.globalActions.unsetSelected();
-          }));
+        try {
+          const report = await this.reportViewModelGeneratorService.get(reportId);
+          this.reportActions.openReportContent(report);
+        } catch (error) {
+          console.error('Error selecting report to open', error);
+          this.globalActions.unsetSelected();
+        }
       }),
     );
   }, { dispatch: false });
@@ -100,35 +124,36 @@ export class ReportsEffects {
   selectReport = createEffect(() => {
     return this.actions$.pipe(
       ofType(ReportActionList.selectReport),
-      withLatestFrom(
-        this.store.select(Selectors.getSelectMode),
-        this.store.select(Selectors.getSelectedReports),
-      ),
-      tap(([{ payload: { reportId } }, selectMode, selectedReports]) => {
-        if (!reportId || !selectMode) {
+      concatMap(async ({ payload: { reportId } }) => {
+        const id = reportId?._id || reportId;
+        if (!id || !await this.canViewReportDetails()) {
           return;
         }
 
-        return this.reportViewModelGeneratorService
-          .get(reportId)
-          .then(report => {
-            const model = { ...report };
-            const exists = selectedReports?.find(selectedReport => selectedReport?._id === model?.doc?._id);
+        const isSelected = async () => {
+          const [selectMode, selectedReports] = await firstValueFrom(combineLatest([
+            this.store.select(Selectors.getSelectMode),
+            this.store.select(Selectors.getSelectedReports),
+          ]));
+          return selectMode && selectedReports?.some(report => report?._id === id);
+        };
 
-            if (exists) {
-              model.loading = false;
-              this.reportActions.updateSelectedReportsItem(model._id, model);
-            } else {
-              model.expanded = false;
-              this.reportActions.addSelectedReport(model);
-            }
+        if (!await isSelected()) {
+          return;
+        }
 
-            this.globalActions.setLoadingContent(false);
-          })
-          .catch(error => {
-            console.error('Error selecting report with select mode active', error);
-            this.globalActions.unsetSelected();
-          });
+        try {
+          const report = await this.reportViewModelGeneratorService.get(reportId);
+          if (!await isSelected()) {
+            return;
+          }
+          const model = { ...report, loading: false };
+          this.reportActions.updateSelectedReportsItem(model._id, model);
+          this.globalActions.setLoadingContent(false);
+        } catch (error) {
+          console.error('Error selecting report with select mode active', error);
+          this.globalActions.unsetSelected();
+        }
       }),
     );
   }, { dispatch: false });
@@ -149,15 +174,16 @@ export class ReportsEffects {
   markRead = createEffect(() => {
     return this.actions$.pipe(
       ofType(ReportActionList.markReportRead),
-      concatMap(action => of(action).pipe(
-        withLatestFrom(
-          this.store.select(Selectors.getListReport, { id: action?.payload?.id }),
+      concatMap(async action => {
+        if (!action?.payload?.id || !await this.canViewReportDetails()) {
+          return;
+        }
+        const [report, unreadCount] = await firstValueFrom(combineLatest([
+          this.store.select(Selectors.getListReport, { id: action.payload.id }),
           this.store.select(Selectors.getBubbleCounter),
-        ),
-      )),
-      exhaustMap(([action, report, unreadCount]) => {
-        if ((report && report.read) || !action?.payload?.id) {
-          return of();
+        ]));
+        if (report?.read) {
+          return;
         }
 
         if (unreadCount) {
@@ -167,14 +193,14 @@ export class ReportsEffects {
         // we could be reaching this effect before the list is loaded
         // in these cases, we skip updating the list and just update the database
         const readReport = report ? { ...report, read: true } : { _id: action?.payload?.id, form: true };
-        this.markReadService
+        await this.markReadService
           .markAsRead([readReport])
           .catch(err => console.error('Error marking read', err));
 
         if (!report) {
-          return of();
+          return;
         }
-        return of(this.reportActions.updateReportsList([readReport]));
+        this.reportActions.updateReportsList([readReport]);
       }),
     );
   }, { dispatch: false });
@@ -183,7 +209,10 @@ export class ReportsEffects {
     return this.actions$.pipe(
       ofType(ReportActionList.launchEditFacilityDialog),
       withLatestFrom(this.store.select(Selectors.getSelectedReport)),
-      tap(([, selectedReport]) => {
+      concatMap(async ([, selectedReport]) => {
+        if (!await this.canViewReportDetails()) {
+          return;
+        }
         this.modalService.show(EditReportComponent, { data: { report: selectedReport?.doc } });
       }),
     );

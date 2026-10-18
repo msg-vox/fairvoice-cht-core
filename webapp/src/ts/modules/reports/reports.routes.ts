@@ -26,7 +26,12 @@ export const routes:Routes = [
       {
         path: ':id',
         component: ReportsContentComponent,
-        data: { name: 'reports.detail' },
+        data: {
+          name: 'reports.detail',
+          permissions: ['can_view_reports', 'can_view_report_details'],
+          redirect: ['/reports'],
+        },
+        canActivate: [ AppRouteGuardProvider ],
         canDeactivate: [ TrainingCardDeactivationGuardProvider ],
       },
       {
@@ -39,7 +44,11 @@ export const routes:Routes = [
       {
         path: 'edit/:reportId',
         component: ReportsAddComponent,
-        data: { permissions: ['can_edit'], hideTraining: true },
+        data: {
+          permissions: ['can_view_reports', 'can_edit', 'can_view_report_details'],
+          hideTraining: true,
+          redirect: ['/reports'],
+        },
         canActivate: [ AppRouteGuardProvider ],
         canDeactivate: [ ReportsAddDeactivationGuardProvider ],
       }
