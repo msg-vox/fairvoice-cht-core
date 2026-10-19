@@ -177,6 +177,19 @@ describe('Reports Component', () => {
     sinon.restore();
   });
 
+  it('renders a single language switcher in the toolbar and none in the report detail pane', () => {
+    expect(fixture.nativeElement.querySelectorAll('mm-language-switcher')).to.have.length(1);
+    expect(fixture.nativeElement.querySelector('mm-tool-bar mm-language-switcher')).to.exist;
+    expect(fixture.nativeElement.querySelector('.content-pane mm-language-switcher')).to.equal(null);
+  });
+
+  it('hides the language switcher in select mode', () => {
+    component.selectMode = true;
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('mm-language-switcher')).to.equal(null);
+  });
+
   it('updates report titles when forms arrive after the search and when their language changes', () => {
     const report = {
       _id: 'report-1',
