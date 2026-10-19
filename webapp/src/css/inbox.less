@@ -2084,6 +2084,12 @@ mm-sidebar-menu .mat-sidenav-container {
 // In current navigation the header is a sidebar, so the language switcher
 // renders in the controls toolbar as a plain icon button, alongside the
 // search and filter controls.
+@media (min-width: (@media-mobile + 1)) {
+  .tool-bar .inner > mm-language-switcher {
+    margin-left: auto;
+  }
+}
+
 .tool-bar .inner .toolbar-languages {
   display: flex;
   align-items: center;
