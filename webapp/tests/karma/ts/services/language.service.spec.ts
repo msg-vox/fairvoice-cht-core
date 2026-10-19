@@ -8,6 +8,7 @@ import { SettingsService } from '@mm-services/settings.service';
 import { CookieService } from 'ngx-cookie-service';
 import { LanguageService, LanguageCookieService, SetLanguageService } from '@mm-services/language.service';
 import { FormatDateService } from '@mm-services/format-date.service';
+import { RelativeDateService } from '@mm-services/relative-date.service';
 import { TelemetryService } from '@mm-services/telemetry.service';
 import { provideMockStore } from '@ngrx/store/testing';
 import { GlobalActions } from '@mm-actions/global';
@@ -62,6 +63,7 @@ describe('Language services', () => {
     let languageCookieService;
     let ngxTranslateService;
     let formatDateService;
+    let relativeDateService;
     let telemetryService;
     let languageService;
     let setLanguageAction;
@@ -79,6 +81,7 @@ describe('Language services', () => {
         use: sinon.stub().returns({ toPromise: sinon.stub().resolves() }),
       };
       formatDateService = { init: sinon.stub().resolves() };
+      relativeDateService = { updateRelativeDates: sinon.stub() };
       telemetryService = { record: sinon.stub() };
       languageService = { useRtl: sinon.stub() };
       setLanguageAction = sinon.stub(GlobalActions.prototype, 'setLanguage');
@@ -89,6 +92,7 @@ describe('Language services', () => {
           { provide: LanguageCookieService, useValue: languageCookieService },
           { provide: NgxTranslateService, useValue: ngxTranslateService },
           { provide: FormatDateService, useValue: formatDateService },
+          { provide: RelativeDateService, useValue: relativeDateService },
           { provide: TelemetryService, useValue: telemetryService },
           { provide: LanguageService, useValue: languageService },
         ]
@@ -113,6 +117,32 @@ describe('Language services', () => {
       expect(telemetryService.record.callCount).to.equal(1);
       expect(telemetryService.record.args[0]).to.deep.equal(['user_settings:language:new locale']);
       expect(setLanguageAction.args).to.deep.equal([[ { code: newLocale, rtl: true }]]);
+    });
+
+    it('should refresh relative dates after translations and date formatting are ready', async () => {
+      ngxTranslateService.use.returns({
+        toPromise: async () => {
+          await Promise.resolve();
+          expect(relativeDateService.updateRelativeDates).not.to.have.been.called;
+        },
+      });
+      formatDateService.init.callsFake(async () => {
+        expect(languageCookieService.set).to.have.been.calledOnceWithExactly('fr');
+        await Promise.resolve();
+        expect(relativeDateService.updateRelativeDates).not.to.have.been.called;
+      });
+
+      await setLanguageService.set('fr');
+
+      expect(relativeDateService.updateRelativeDates).to.have.been.calledOnceWithExactly();
+    });
+
+    it('should refresh relative dates on every language change', async () => {
+      await setLanguageService.set('fr');
+      expect(relativeDateService.updateRelativeDates).to.have.been.calledOnce;
+
+      await setLanguageService.set('en');
+      expect(relativeDateService.updateRelativeDates).to.have.been.calledTwice;
     });
 
     it('should set supported datepicker language', async () => {
@@ -145,6 +175,7 @@ describe('Language services', () => {
 
         await expect(setLanguageService.set('fr')).to.be.rejectedWith(error);
         expect((<any>$.fn).datepicker.defaults.language).to.equal('fr');
+        expect(relativeDateService.updateRelativeDates).not.to.have.been.called;
         expect(setLanguageAction).not.to.have.been.called;
         expect(telemetryService.record).not.to.have.been.called;
         if (stage === 'date formatting') {
@@ -172,6 +203,7 @@ describe('Language services', () => {
       expect(ngxTranslateService.use.args[0]).to.deep.equal([newLocale]);
       expect(languageCookieService.set.callCount).to.equal(0);
       expect(formatDateService.init.callCount).to.equal(1);
+      expect(relativeDateService.updateRelativeDates).to.have.been.calledOnce;
     });
   });
 
