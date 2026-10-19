@@ -8,11 +8,12 @@ import { UiExtensionsService } from '@mm-services/ui-extensions.service';
 import { UserContactSummaryService } from '@mm-services/user-contact-summary.service';
 import { ToolBarComponent } from '@mm-components/tool-bar/tool-bar.component';
 import { ErrorLogComponent } from '@mm-components/error-log/error-log.component';
+import { LanguageSwitcherComponent } from '@mm-components/language-switcher/language-switcher.component';
 import { TranslatePipe } from '@ngx-translate/core';
 
 @Component({
   templateUrl: './ui-extensions-tab.component.html',
-  imports: [ToolBarComponent, ErrorLogComponent, TranslatePipe, NgIf]
+  imports: [ToolBarComponent, ErrorLogComponent, LanguageSwitcherComponent, TranslatePipe, NgIf]
 })
 export class UiExtensionsTabComponent implements AfterViewInit, OnDestroy {
   @ViewChild('uiElementTab') container!: ElementRef;

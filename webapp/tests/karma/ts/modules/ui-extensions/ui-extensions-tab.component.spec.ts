@@ -2,6 +2,7 @@ import { ComponentFixture, fakeAsync, flush, TestBed } from '@angular/core/testi
 import { ActivatedRoute } from '@angular/router';
 import { RouterTestingModule } from '@angular/router/testing';
 import { MatIconModule } from '@angular/material/icon';
+import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
 import { expect } from 'chai';
 import sinon from 'sinon';
@@ -15,6 +16,9 @@ import { UiExtensionsService } from '@mm-services/ui-extensions.service';
 import { UserContactSummaryService } from '@mm-services/user-contact-summary.service';
 import { NavigationService } from '@mm-services/navigation.service';
 import { SessionService } from '@mm-services/session.service';
+import { LanguagesService } from '@mm-services/languages.service';
+import { LanguageService, SetLanguageService } from '@mm-services/language.service';
+import { Selectors } from '@mm-selectors/index';
 
 describe('UiExtensionsTabComponent', () => {
   let fixture: ComponentFixture<UiExtensionsTabComponent>;
@@ -27,6 +31,7 @@ describe('UiExtensionsTabComponent', () => {
   let trackStop;
   let routeParams$: BehaviorSubject<any>;
   let activatedRoute;
+  let languagesService;
 
   const EXTENSION_ID = 'my-extension';
   const EXTENSION_TITLE = 'My Extension Title';
@@ -36,6 +41,9 @@ describe('UiExtensionsTabComponent', () => {
   const MOCK_ELEMENT = class extends HTMLElement {};
 
   beforeEach(async () => {
+    languagesService = {
+      get: sinon.stub().resolves([{ code: 'en', name: 'English' }, { code: 'fr', name: 'Français' }])
+    };
     trackStop = sinon.stub().resolves();
     performanceService = { track: sinon.stub().returns({ stop: trackStop }) };
     chtDatasourceService = { get: sinon.stub().resolves(MOCK_CHT_API) };
@@ -62,10 +70,14 @@ describe('UiExtensionsTabComponent', () => {
         TranslateModule.forRoot({ loader: { provide: TranslateLoader, useClass: TranslateFakeLoader } }),
         RouterTestingModule,
         MatIconModule,
+        NoopAnimationsModule,
         UiExtensionsTabComponent,
       ],
       providers: [
-        provideMockStore(),
+        provideMockStore({ selectors: [{ selector: Selectors.getLanguage, value: null }] }),
+        { provide: LanguagesService, useValue: languagesService },
+        { provide: LanguageService, useValue: { get: sinon.stub().resolves('en') } },
+        { provide: SetLanguageService, useValue: { set: sinon.stub().resolves() } },
         { provide: ActivatedRoute, useValue: activatedRoute },
         { provide: UiExtensionsService, useValue: uiExtensionsService },
         { provide: CHTDatasourceService, useValue: chtDatasourceService },
@@ -106,6 +118,45 @@ describe('UiExtensionsTabComponent', () => {
     expect(trackStop).to.have.been.calledOnceWithExactly({ name: `ui-extension:${EXTENSION_ID}:render` });
     expect(chtDatasourceService.get).to.have.been.calledOnceWithExactly();
     expect(userContactSummaryService.get).to.have.been.calledOnceWithExactly();
+  }));
+
+  it('projects exactly one language switcher into the toolbar', fakeAsync(() => {
+    fixture.detectChanges();
+    flush();
+    fixture.detectChanges();
+
+    const toolbar = fixture.nativeElement.querySelector('mm-tool-bar.header_tab');
+    expect(toolbar).to.exist;
+    expect(toolbar.querySelector('.ellipsis-title').textContent.trim()).to.equal(EXTENSION_TITLE);
+    expect(fixture.nativeElement.querySelectorAll('mm-language-switcher')).to.have.length(1);
+    expect(toolbar.querySelectorAll('.tool-bar .inner mm-language-switcher')).to.have.length(1);
+    expect(toolbar.querySelectorAll('.language-menu-trigger')).to.have.length(1);
+  }));
+
+  it('hides the language picker when only one language is available', fakeAsync(() => {
+    languagesService.get.resolves([{ code: 'en', name: 'English' }]);
+
+    fixture.detectChanges();
+    flush();
+    fixture.detectChanges();
+
+    const toolbar = fixture.nativeElement.querySelector('mm-tool-bar');
+    expect(toolbar.querySelectorAll('mm-language-switcher')).to.have.length(1);
+    expect(toolbar.querySelector('.language-menu-trigger')).to.not.exist;
+    expect(fixture.nativeElement.querySelector(`cht-${EXTENSION_ID}`)).to.exist;
+  }));
+
+  it('retains the toolbar and language picker while the extension is loading', fakeAsync(() => {
+    uiExtensionsService.getExtension.returns(new Promise(() => {}));
+
+    fixture.detectChanges();
+    flush();
+    fixture.detectChanges();
+
+    expect(component.loading).to.be.true;
+    expect(fixture.nativeElement.querySelector('.loader')).to.exist;
+    expect(fixture.nativeElement.querySelectorAll('mm-tool-bar mm-language-switcher')).to.have.length(1);
+    expect(fixture.nativeElement.querySelector('mm-tool-bar .language-menu-trigger')).to.exist;
   }));
 
   it('applies accent_color to the toolbar when provided', fakeAsync(() => {
@@ -154,6 +205,11 @@ describe('UiExtensionsTabComponent', () => {
     expect(trackStop).to.have.been.calledOnceWithExactly({ name: `ui-extension:${EXTENSION_ID}:render` });
     expect(chtDatasourceService.get).to.not.have.been.called;
     expect(userContactSummaryService.get).to.not.have.been.called;
+
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('error-log')).to.exist;
+    expect(fixture.nativeElement.querySelectorAll('mm-tool-bar mm-language-switcher')).to.have.length(1);
+    expect(fixture.nativeElement.querySelector('mm-tool-bar .language-menu-trigger')).to.exist;
   }));
 
   it('re-initializes when route params change to a different extension', fakeAsync(() => {
