@@ -94,7 +94,6 @@
 
     <div class="content-pane right-pane">
       <div class="item-content" [ngClass]="{ 'col-sm-6': isSidebarFilterOpen, 'col-sm-8': !isSidebarFilterOpen }">
-        <mm-language-switcher *ngIf="!selectMode"></mm-language-switcher>
         <mm-multiselect-bar *ngIf="selectModeAvailable && selectMode && selectedReports?.length"
           [selectedCount]="selectedReports?.length"
           (deleteItems)="bulkDeleteReports()">
