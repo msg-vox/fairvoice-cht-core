@@ -5,6 +5,7 @@ import { TranslateService as NgxTranslateService } from '@ngx-translate/core';
 
 import { SettingsService } from '@mm-services/settings.service';
 import { FormatDateService } from '@mm-services/format-date.service';
+import { RelativeDateService } from '@mm-services/relative-date.service';
 import { TelemetryService } from '@mm-services/telemetry.service';
 import { Store } from '@ngrx/store';
 import { GlobalActions } from '@mm-actions/global';
@@ -55,6 +56,7 @@ export class SetLanguageService {
     private telemetryService:TelemetryService,
     private languageCookieService:LanguageCookieService,
     private formatDateService:FormatDateService,
+    private relativeDateService:RelativeDateService,
     private languageService:LanguageService,
     private store:Store,
   ) {
@@ -78,6 +80,7 @@ export class SetLanguageService {
 
     // formatDateService depends on the cookie, so also wait for the cookie to be updated
     await this.formatDateService.init();
+    this.relativeDateService.updateRelativeDates();
     this.globalActions.setLanguage({ code, rtl: this.languageService.useRtl(code) });
     this.telemetryService.record(`user_settings:language:${code}`);
   }
