@@ -2,6 +2,8 @@ import { AfterViewInit, Component, ElementRef, OnDestroy, ViewChild } from '@ang
 import { ActivatedRoute } from '@angular/router';
 import { NgIf } from '@angular/common';
 import { Subscription } from 'rxjs';
+import { Store } from '@ngrx/store';
+import { Selectors } from '@mm-selectors/index';
 import { CHTDatasourceService } from '@mm-services/cht-datasource.service';
 import { PerformanceService } from '@mm-services/performance.service';
 import { UiExtensionsService } from '@mm-services/ui-extensions.service';
@@ -24,10 +26,15 @@ export class UiExtensionsTabComponent implements AfterViewInit, OnDestroy {
   accentColor?: string;
 
   private paramSubscription?: Subscription;
+  private languageSubscription?: Subscription;
+  private languageCode?: string;
+  private mountedElement?: HTMLElement;
+  private initialization = 0;
   private errorListener?: (event: ErrorEvent | PromiseRejectionEvent) => void;
 
   constructor(
     private readonly route: ActivatedRoute,
+    private readonly store: Store,
     private readonly chtDatasourceService: CHTDatasourceService,
     private readonly performanceService: PerformanceService,
     private readonly uiExtensionsService: UiExtensionsService,
@@ -35,6 +42,13 @@ export class UiExtensionsTabComponent implements AfterViewInit, OnDestroy {
   ) {}
 
   ngAfterViewInit() {
+    this.languageSubscription = this.store.select(Selectors.getLanguage).subscribe(language => {
+      if (!language?.code || language.code === this.languageCode) {
+        return;
+      }
+      this.languageCode = language.code;
+      this.notifyLanguageChanged();
+    });
     let currentExtensionId = undefined;
     this.paramSubscription = this.route.params.subscribe(async (params) => {
       if (currentExtensionId === params['id']) {
@@ -49,6 +63,9 @@ export class UiExtensionsTabComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy() {
     this.paramSubscription?.unsubscribe();
+    this.languageSubscription?.unsubscribe();
+    this.mountedElement = undefined;
+    this.initialization++;
     this.unregisterErrorListener();
   }
 
@@ -78,7 +95,18 @@ export class UiExtensionsTabComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  private notifyLanguageChanged() {
+    if (this.languageCode && this.mountedElement?.isConnected &&
+        this.mountedElement.parentNode === this.container.nativeElement) {
+      this.mountedElement.dispatchEvent(new CustomEvent('cht-language-changed', {
+        detail: { code: this.languageCode },
+      }));
+    }
+  }
+
   private async initializeExtension(extensionId: string) {
+    const initialization = ++this.initialization;
+    this.mountedElement = undefined;
     const elementName = `cht-${extensionId.toLowerCase()}`;
     this.loading = true;
     this.errorStack = undefined;
@@ -94,6 +122,9 @@ export class UiExtensionsTabComponent implements AfterViewInit, OnDestroy {
         properties: { title, config, accent_color, extension_type },
         Element
       } = await this.uiExtensionsService.getExtension(extensionId);
+      if (initialization !== this.initialization) {
+        return;
+      }
       this.extensionTitle = title ?? '';
       this.extensionType = extension_type;
       this.accentColor = accent_color;
@@ -102,25 +133,38 @@ export class UiExtensionsTabComponent implements AfterViewInit, OnDestroy {
       }
       const element = document.createElement(elementName);
 
+      const cht = await this.chtDatasourceService.get();
+      if (initialization !== this.initialization) {
+        return;
+      }
+      const userContactSummary = (await this.userContactSummaryService.get())?.context;
+      if (initialization !== this.initialization) {
+        return;
+      }
       Object.assign(element, {
-        cht: await this.chtDatasourceService.get(),
-        inputs: {
-          config,
-          userContactSummary: (await this.userContactSummaryService.get())?.context,
-        },
+        cht,
+        inputs: { config, userContactSummary },
       });
 
       this.container.nativeElement.appendChild(element);
+      if (initialization === this.initialization) {
+        this.mountedElement = element;
+        this.notifyLanguageChanged();
+      }
     } catch (error) {
       // Note this catch block does not catch errors propagating from the actual web component code. The error
       // listener registered above handles those errors (but intentionally does not set this.errorStack). The
       // web component is responsible for handling the UX of its errors (e.g. showing an error message to the user).
       // This catch block is for handling errors when loading the extension code (e.g. if the extension's .js file
       // does not export an HTMLElement).
-      console.error(`Error initializing UI extension: "${extensionId}"`, error);
-      this.errorStack = error?.stack;
+      if (initialization === this.initialization) {
+        console.error(`Error initializing UI extension: "${extensionId}"`, error);
+        this.errorStack = error?.stack;
+      }
     } finally {
-      this.loading = false;
+      if (initialization === this.initialization) {
+        this.loading = false;
+      }
       await trackRender?.stop({ name: `ui-extension:${extensionId}:render` });
     }
   }

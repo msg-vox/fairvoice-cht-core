@@ -7,7 +7,7 @@ import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-tran
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { BehaviorSubject } from 'rxjs';
-import { provideMockStore } from '@ngrx/store/testing';
+import { MockStore, provideMockStore } from '@ngrx/store/testing';
 
 import { UiExtensionsTabComponent } from '@mm-modules/ui-extensions/ui-extensions-tab.component';
 import { CHTDatasourceService } from '@mm-services/cht-datasource.service';
@@ -32,13 +32,25 @@ describe('UiExtensionsTabComponent', () => {
   let routeParams$: BehaviorSubject<any>;
   let activatedRoute;
   let languagesService;
+  let store: MockStore;
 
   const EXTENSION_ID = 'my-extension';
   const EXTENSION_TITLE = 'My Extension Title';
   const MOCK_CHT_API = { v1: {} };
   const MOCK_USER_SUMMARY = { context: { userRole: 'chw' } };
   const MOCK_CONFIG = { key: 'value' };
-  const MOCK_ELEMENT = class extends HTMLElement {};
+  const MOCK_ELEMENT = class extends HTMLElement {
+    languageEvents: CustomEvent[] = [];
+
+    connectedCallback() {
+      this.addEventListener('cht-language-changed', event => this.languageEvents.push(event as CustomEvent));
+    }
+  };
+
+  const commitLanguage = (code: string | null) => {
+    store.overrideSelector(Selectors.getLanguage, code === null ? null : { code, rtl: false });
+    store.refreshState();
+  };
 
   beforeEach(async () => {
     languagesService = {
@@ -90,6 +102,7 @@ describe('UiExtensionsTabComponent', () => {
 
     fixture = TestBed.createComponent(UiExtensionsTabComponent);
     component = fixture.componentInstance;
+    store = TestBed.inject(MockStore);
   });
 
   afterEach(() => sinon.restore());
@@ -270,6 +283,151 @@ describe('UiExtensionsTabComponent', () => {
 
     expect(uiExtensionsService.getExtension.callCount).to.equal(1);
   }));
+
+  describe('committed language events', () => {
+    it('delivers the initial language after connection with initialized inputs without bubbling', fakeAsync(() => {
+      commitLanguage('en');
+      fixture.detectChanges();
+      const bubblingListener = sinon.spy();
+      component.container.nativeElement.addEventListener('cht-language-changed', bubblingListener);
+      flush();
+
+      const element = fixture.nativeElement.querySelector(`cht-${EXTENSION_ID}`);
+      expect(element.languageEvents).to.have.length(1);
+      const event = element.languageEvents[0];
+      expect(event).to.be.instanceOf(CustomEvent);
+      expect(event.detail).to.deep.equal({ code: 'en' });
+      expect(event.target).to.equal(element);
+      expect(event.bubbles).to.be.false;
+      expect(bubblingListener).to.not.have.been.called;
+      expect(element.cht).to.equal(MOCK_CHT_API);
+      expect(element.inputs).to.deep.equal({ config: MOCK_CONFIG, userContactSummary: MOCK_USER_SUMMARY.context });
+    }));
+
+    it('ignores missing and repeated codes and preserves the instance, route and dependencies', fakeAsync(() => {
+      fixture.detectChanges();
+      flush();
+      const element = fixture.nativeElement.querySelector(`cht-${EXTENSION_ID}`);
+      expect(element.languageEvents).to.have.length(0);
+
+      commitLanguage('');
+      commitLanguage('en');
+      commitLanguage('en');
+      commitLanguage(null);
+      commitLanguage('en');
+      commitLanguage('fr');
+      flush();
+
+      expect(element.languageEvents.map(event => event.detail.code)).to.deep.equal(['en', 'fr']);
+      expect(fixture.nativeElement.querySelector(`cht-${EXTENSION_ID}`)).to.equal(element);
+      expect(activatedRoute.snapshot.params).to.deep.equal({ id: EXTENSION_ID });
+      expect(activatedRoute.snapshot.data).to.deep.equal({ tab: `ui-extension-${EXTENSION_ID}` });
+      expect(routeParams$.value).to.deep.equal({ id: EXTENSION_ID });
+      expect(uiExtensionsService.getExtension).to.have.been.calledOnceWithExactly(EXTENSION_ID);
+      expect(chtDatasourceService.get).to.have.been.calledOnceWithExactly();
+      expect(userContactSummaryService.get).to.have.been.calledOnceWithExactly();
+      expect(performanceService.track).to.have.been.calledOnceWithExactly();
+    }));
+
+    [
+      ['extension', () => uiExtensionsService.getExtension],
+      ['datasource', () => chtDatasourceService.get],
+      ['summary', () => userContactSummaryService.get],
+    ].forEach(([stage, getStub]) => {
+      it(`delivers only the latest language after delayed ${stage} initialization`, fakeAsync(() => {
+        const stub = (getStub as () => any)();
+        const result = stub();
+        stub.resetHistory();
+        let resolve;
+        stub.returns(new Promise(complete => resolve = complete));
+        commitLanguage('en');
+        fixture.detectChanges();
+        flush();
+        commitLanguage('fr');
+        expect(component.container.nativeElement.children).to.have.length(0);
+
+        result.then(value => resolve(value)).catch(error => {
+          throw error;
+        });
+        flush();
+
+        const element = fixture.nativeElement.querySelector(`cht-${EXTENSION_ID}`);
+        expect(element.languageEvents.map(event => event.detail.code)).to.deep.equal(['fr']);
+        expect(stub).to.have.been.calledOnce;
+      }));
+    });
+
+    it('delivers the current code to a replacement but not to the removed instance', fakeAsync(() => {
+      commitLanguage('en');
+      fixture.detectChanges();
+      flush();
+      const firstElement = fixture.nativeElement.querySelector(`cht-${EXTENSION_ID}`);
+      routeParams$.next({ id: EXTENSION_ID.toUpperCase() });
+      commitLanguage('fr');
+      flush();
+
+      const replacement = fixture.nativeElement.querySelector(`cht-${EXTENSION_ID}`);
+      expect(replacement).to.not.equal(firstElement);
+      expect(firstElement.isConnected).to.be.false;
+      expect(firstElement.languageEvents.map(event => event.detail.code)).to.deep.equal(['en']);
+      expect(replacement.languageEvents.map(event => event.detail.code)).to.deep.equal(['fr']);
+      expect(uiExtensionsService.getExtension).to.have.been.calledTwice;
+    }));
+
+    it('does not notify an externally removed instance or notify after destruction', fakeAsync(() => {
+      fixture.detectChanges();
+      flush();
+      const element = fixture.nativeElement.querySelector(`cht-${EXTENSION_ID}`);
+      element.remove();
+      commitLanguage('en');
+      expect(element.languageEvents).to.have.length(0);
+      component.container.nativeElement.appendChild(element);
+      component.ngOnDestroy();
+      commitLanguage('fr');
+      expect(element.languageEvents).to.have.length(0);
+    }));
+
+    ['replacement', 'destruction'].forEach(action => {
+      it(`does not mount stale initialization after ${action}`, fakeAsync(() => {
+        let resolve;
+        chtDatasourceService.get.onFirstCall().returns(new Promise(complete => resolve = complete));
+        commitLanguage('en');
+        fixture.detectChanges();
+        flush();
+
+        if (action === 'replacement') {
+          routeParams$.next({ id: EXTENSION_ID.toUpperCase() });
+        } else {
+          component.ngOnDestroy();
+        }
+        flush();
+        resolve(MOCK_CHT_API);
+        flush();
+
+        const elements = component.container.nativeElement.children;
+        expect(elements).to.have.length(action === 'replacement' ? 1 : 0);
+        expect(userContactSummaryService.get.callCount).to.equal(action === 'replacement' ? 1 : 0);
+        if (action === 'replacement') {
+          expect(elements[0].languageEvents.map(event => event.detail.code)).to.deep.equal(['en']);
+        }
+      }));
+    });
+
+    it('ignores stale loading errors without clearing the replacement loading state', fakeAsync(() => {
+      let reject;
+      uiExtensionsService.getExtension.onFirstCall().returns(new Promise((resolve, fail) => reject = fail));
+      uiExtensionsService.getExtension.onSecondCall().returns(new Promise(() => {}));
+      const consoleError = sinon.stub(console, 'error');
+      fixture.detectChanges();
+      routeParams$.next({ id: EXTENSION_ID.toUpperCase() });
+      reject(new Error('stale failure'));
+      flush();
+
+      expect(component.loading).to.be.true;
+      expect(component.errorStack).to.be.undefined;
+      expect(consoleError).to.not.have.been.called;
+    }));
+  });
 
   describe('global error listener', () => {
     let addEventListenerSpy;
