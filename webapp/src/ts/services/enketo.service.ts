@@ -52,6 +52,20 @@ export class EnketoService {
     return this.currentForm;
   }
 
+  setLanguage(code: string): boolean {
+    const langs = this.currentForm?.langs;
+    if (!langs?.languagesUsed?.includes(code) || !langs.formLanguages) {
+      return false;
+    }
+
+    // Use Enketo's change handler so its selected language and future repeats stay in sync.
+    if (langs.formLanguages.value !== code) {
+      langs.formLanguages.value = code;
+      langs.formLanguages.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    return true;
+  }
+
   private replaceDataI18nTranslations(formHtml) {
     formHtml.find('[data-i18n]').each((idx, element) => {
       const $element = $(element);

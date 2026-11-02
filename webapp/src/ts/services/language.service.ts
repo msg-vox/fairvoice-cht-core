@@ -1,5 +1,5 @@
 import * as moment from 'moment';
-import { Injectable } from '@angular/core';
+import { Injectable, Injector } from '@angular/core';
 import { CookieService } from 'ngx-cookie-service';
 import { TranslateService as NgxTranslateService } from '@ngx-translate/core';
 
@@ -9,6 +9,7 @@ import { RelativeDateService } from '@mm-services/relative-date.service';
 import { TelemetryService } from '@mm-services/telemetry.service';
 import { Store } from '@ngrx/store';
 import { GlobalActions } from '@mm-actions/global';
+import { EnketoService } from '@mm-services/enketo.service';
 
 @Injectable({
   providedIn: 'root'
@@ -59,6 +60,7 @@ export class SetLanguageService {
     private relativeDateService:RelativeDateService,
     private languageService:LanguageService,
     private store:Store,
+    private injector:Injector,
   ) {
     this.globalActions = new GlobalActions(this.store);
   }
@@ -82,6 +84,8 @@ export class SetLanguageService {
     await this.formatDateService.init();
     this.relativeDateService.updateRelativeDates();
     this.globalActions.setLanguage({ code, rtl: this.languageService.useRtl(code) });
+    // Creating a language menu should not initialize the form services.
+    this.injector.get(EnketoService).setLanguage(code);
     this.telemetryService.record(`user_settings:language:${code}`);
   }
 }

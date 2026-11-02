@@ -136,9 +136,14 @@ describe('Language Switcher Component', () => {
       expect(buttons().every(button => !button.disabled)).to.be.true;
     });
 
-    it('ignores current and unknown languages', async () => {
+    it('reapplies the current language so an independently changed form can follow the menu', async () => {
       await initialize();
       await component.switchLanguage('en');
+      expect(setLanguageService.set).to.have.been.calledOnceWithExactly('en');
+    });
+
+    it('ignores unknown languages', async () => {
+      await initialize();
       await component.switchLanguage('unknown');
       expect(setLanguageService.set).not.to.have.been.called;
     });

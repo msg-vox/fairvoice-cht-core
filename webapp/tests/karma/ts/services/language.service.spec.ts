@@ -12,6 +12,7 @@ import { RelativeDateService } from '@mm-services/relative-date.service';
 import { TelemetryService } from '@mm-services/telemetry.service';
 import { provideMockStore } from '@ngrx/store/testing';
 import { GlobalActions } from '@mm-actions/global';
+import { EnketoService } from '@mm-services/enketo.service';
 
 describe('Language services', () => {
   afterEach(() => {
@@ -67,6 +68,8 @@ describe('Language services', () => {
     let telemetryService;
     let languageService;
     let setLanguageAction;
+    let enketoService;
+    let createEnketoService;
     let setLanguageService:SetLanguageService;
 
     beforeEach(() => {
@@ -84,6 +87,8 @@ describe('Language services', () => {
       relativeDateService = { updateRelativeDates: sinon.stub() };
       telemetryService = { record: sinon.stub() };
       languageService = { useRtl: sinon.stub() };
+      enketoService = { setLanguage: sinon.stub().returns(false) };
+      createEnketoService = sinon.stub().returns(enketoService);
       setLanguageAction = sinon.stub(GlobalActions.prototype, 'setLanguage');
 
       TestBed.configureTestingModule({
@@ -95,6 +100,7 @@ describe('Language services', () => {
           { provide: RelativeDateService, useValue: relativeDateService },
           { provide: TelemetryService, useValue: telemetryService },
           { provide: LanguageService, useValue: languageService },
+          { provide: EnketoService, useFactory: createEnketoService },
         ]
       });
       setLanguageService = TestBed.inject(SetLanguageService);
@@ -117,6 +123,14 @@ describe('Language services', () => {
       expect(telemetryService.record.callCount).to.equal(1);
       expect(telemetryService.record.args[0]).to.deep.equal(['user_settings:language:new locale']);
       expect(setLanguageAction.args).to.deep.equal([[ { code: newLocale, rtl: true }]]);
+      expect(enketoService.setLanguage).to.have.been.calledOnceWithExactly(newLocale);
+    });
+
+    it('only initializes form services when a language is set', async () => {
+      expect(createEnketoService).not.to.have.been.called;
+      await setLanguageService.set('fr');
+      expect(createEnketoService).to.have.been.calledOnce;
+      expect(enketoService.setLanguage).to.have.been.calledOnceWithExactly('fr');
     });
 
     it('should refresh relative dates after translations and date formatting are ready', async () => {
@@ -177,6 +191,7 @@ describe('Language services', () => {
         expect((<any>$.fn).datepicker.defaults.language).to.equal('fr');
         expect(relativeDateService.updateRelativeDates).not.to.have.been.called;
         expect(setLanguageAction).not.to.have.been.called;
+        expect(enketoService.setLanguage).not.to.have.been.called;
         expect(telemetryService.record).not.to.have.been.called;
         if (stage === 'date formatting') {
           expect(languageCookieService.set).to.have.been.calledOnceWithExactly('fr');

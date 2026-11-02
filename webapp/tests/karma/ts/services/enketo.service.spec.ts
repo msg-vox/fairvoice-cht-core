@@ -17,6 +17,7 @@ import { WebappEnketoFormContext } from '@mm-services/form.service';
 import { REPORT_ATTACHMENT_NAME } from '@mm-services/get-report-content.service';
 import { DOC_TYPES } from '@medic/constants';
 import events from 'enketo-core/src/js/event';
+import enketoLanguage from 'enketo-core/src/js/language';
 import { Qualifier } from '@medic/cht-datasource';
 
 describe('Enketo service', () => {
@@ -1931,6 +1932,99 @@ describe('Enketo service', () => {
           .to.deep.equal({ content_type: 'image/png', data: 'a' });
         expect(clinic._attachments['user-file-orphan.png']).to.be.undefined;
       });
+    });
+  });
+
+  describe('setLanguage', () => {
+    let wrapper;
+    let languageChanged;
+    let previousLocale;
+
+    beforeEach(async () => {
+      service = TestBed.inject(EnketoService);
+      previousLocale = (<any>window).enketoFormLocale;
+      wrapper = $('<div><div class="form-language-selector hide"></div><div class="container"></div></div>');
+      form.view.html = document.createElement('form');
+      form.view.html.innerHTML = `
+        <select id="form-languages" data-default-lang="en">
+          <option value="en">English</option><option value="ar" data-dir="rtl">Arabic</option>
+        </select>
+        <span lang="en" class="active">Name</span><span lang="ar">الاسم</span>
+        <input name="name" value="An answer">
+        <div class="or-repeat" data-lang="en"><input name="child" value="A child"></div>`;
+      form.collections = { repeats: { getElements: () => form.view.html.querySelectorAll('.or-repeat') } };
+      form.langs = Object.assign(Object.create(enketoLanguage), { form });
+      enketoInit.callsFake(() => form.langs.init('en'));
+      EnketoPrepopulationData.returns('<xml></xml>');
+      await service.renderForm({
+        selector: wrapper,
+        formConfig: buildFormConfig({ html: $(form.view.html) }),
+      }, { language: 'en' });
+      languageChanged = sinon.spy();
+      form.view.html.addEventListener(events.ChangeLanguage().type, languageChanged);
+    });
+
+    afterEach(() => {
+      wrapper.remove();
+      (<any>window).enketoFormLocale = previousLocale;
+    });
+
+    it('uses the selector handler to update language, labels, direction, and repeats without resetting answers', () => {
+      const repeat = form.view.html.querySelector('.or-repeat');
+
+      expect(service.setLanguage('ar')).to.equal(true);
+
+      expect(form.langs.formLanguages.value).to.equal('ar');
+      expect(form.langs.currentLanguage).to.equal('ar');
+      expect(form.view.html.getAttribute('dir')).to.equal('rtl');
+      expect(form.view.html.querySelector('[lang="ar"]').classList.contains('active')).to.equal(true);
+      expect(form.view.html.querySelector('[lang="en"]').classList.contains('active')).to.equal(false);
+      expect(repeat.dataset.lang).to.equal('ar');
+      expect(form.view.html.querySelector('.or-repeat')).to.equal(repeat);
+      expect(form.view.html.querySelector('[name="name"]').value).to.equal('An answer');
+      expect(form.view.html.querySelector('[name="child"]').value).to.equal('A child');
+      expect(languageChanged).to.have.been.calledOnce;
+      expect(form.resetView).not.to.have.been.called;
+      expect(enketoInit).to.have.been.calledOnce;
+
+      expect(service.setLanguage('en')).to.equal(true);
+      expect(form.langs.currentLanguage).to.equal('en');
+      expect(form.view.html.getAttribute('dir')).to.equal('ltr');
+    });
+
+    it('leaves the form unchanged when the requested language is unavailable', () => {
+      expect(service.setLanguage('fr')).to.equal(false);
+      expect(form.langs.currentLanguage).to.equal('en');
+      expect(form.langs.formLanguages.value).to.equal('en');
+      expect(languageChanged).not.to.have.been.called;
+    });
+
+    it('uses the switched language for newly added repeat instances', () => {
+      service.setLanguage('ar');
+      const repeat = document.createElement('div');
+      repeat.innerHTML = '<span lang="en" class="active">Name</span><span lang="ar">الاسم</span>';
+      form.view.html.append(repeat);
+
+      repeat.dispatchEvent(events.AddRepeat());
+
+      expect(repeat.querySelector('[lang="ar"]')?.classList.contains('active')).to.equal(true);
+      expect(repeat.querySelector('[lang="en"]')?.classList.contains('active')).to.equal(false);
+    });
+
+    it('does not emit a change when the selector already has the requested language', () => {
+      expect(service.setLanguage('en')).to.equal(true);
+      expect(languageChanged).not.to.have.been.called;
+    });
+
+    it('does nothing after the form is closed', () => {
+      service.unload(form);
+      expect(service.setLanguage('ar')).to.equal(false);
+      expect(languageChanged).not.to.have.been.called;
+    });
+
+    it('does nothing when the language control has not initialized', () => {
+      form.langs = {};
+      expect(service.setLanguage('ar')).to.equal(false);
     });
   });
 

@@ -74,7 +74,7 @@ export class LanguageSwitcherComponent implements OnInit, OnDestroy {
   }
 
   async switchLanguage(code: string): Promise<void> {
-    if (this.destroyed || this.languageSwitchPending || code === this.activeLanguage ||
+    if (this.destroyed || this.languageSwitchPending ||
         !this.availableLanguages.some(language => language.code === code)) {
       return;
     }
