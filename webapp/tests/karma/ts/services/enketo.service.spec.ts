@@ -18,6 +18,7 @@ import { REPORT_ATTACHMENT_NAME } from '@mm-services/get-report-content.service'
 import { DOC_TYPES } from '@medic/constants';
 import events from 'enketo-core/src/js/event';
 import enketoLanguage from 'enketo-core/src/js/language';
+import { Form as NativeEnketoForm } from 'enketo-core';
 import { Qualifier } from '@medic/cht-datasource';
 
 describe('Enketo service', () => {
@@ -2025,6 +2026,64 @@ describe('Enketo service', () => {
     it('does nothing when the language control has not initialized', () => {
       form.langs = {};
       expect(service.setLanguage('ar')).to.equal(false);
+    });
+  });
+
+  describe('language switching with an initialized Enketo form', () => {
+    let wrapper;
+    let nativeForm;
+    let previousLocale;
+
+    beforeEach(async () => {
+      previousLocale = (<any>window).enketoFormLocale;
+      wrapper = $('<div class="enketo"><div class="form-language-selector hide"></div>' +
+        '<div class="container"></div></div>').appendTo(document.body);
+      EnketoForm.callsFake((...args) => new NativeEnketoForm(...args));
+      const html = `<form class="or">
+        <select id="form-languages" data-default-lang="en">
+          <option value="en">English</option><option value="fr">French</option>
+        </select>
+        <label class="question">
+          <span class="question-label active" lang="en">Name</span>
+          <span class="question-label" lang="fr">Nom</span>
+          <input name="/data/name" type="text" data-type-xml="string">
+        </label>
+      </form>`;
+      const model = '<model><instance><data id="language-test"><name/>' +
+        '<meta><instanceID/></meta></data></instance><bind nodeset="/data/name" type="string"/></model>';
+      service = TestBed.inject(EnketoService);
+      const result = await service.renderForm({ selector: wrapper, formConfig: buildFormConfig({ html, model }) },
+        { language: 'en' });
+      nativeForm = result.form;
+    });
+
+    afterEach(() => {
+      if (nativeForm) {
+        service.unload(nativeForm);
+      }
+      wrapper.remove();
+      (<any>window).enketoFormLocale = previousLocale;
+    });
+
+    it('switches an en/fr form using its real selector handler and preserves the model', () => {
+      const input = wrapper.find('input[name="/data/name"]');
+      input.val('An unfinished answer');
+      input[0].dispatchEvent(new Event('change', { bubbles: true }));
+      const modelBefore = nativeForm.getDataStr();
+      expect(modelBefore).to.contain('An unfinished answer');
+
+      expect(service.setLanguage('fr')).to.equal(true);
+
+      expect(nativeForm.langs.currentLanguage).to.equal('fr');
+      expect(nativeForm.langs.formLanguages.value).to.equal('fr');
+      expect(wrapper.find('[lang="fr"]').hasClass('active')).to.equal(true);
+      expect(nativeForm.view.html.getAttribute('dir')).to.equal('ltr');
+      expect(nativeForm.getDataStr()).to.equal(modelBefore);
+      expect(input.val()).to.equal('An unfinished answer');
+
+      expect(service.setLanguage('en')).to.equal(true);
+      expect(nativeForm.langs.currentLanguage).to.equal('en');
+      expect(nativeForm.getDataStr()).to.equal(modelBefore);
     });
   });
 
