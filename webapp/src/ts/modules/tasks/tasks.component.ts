@@ -18,7 +18,7 @@ import { ToolBarComponent } from '@mm-components/tool-bar/tool-bar.component';
 import { NgClass, NgFor, NgIf } from '@angular/common';
 import { RouterLink, RouterOutlet } from '@angular/router';
 import { ErrorLogComponent } from '@mm-components/error-log/error-log.component';
-import { TranslatePipe } from '@ngx-translate/core';
+import { TranslatePipe, TranslateService } from '@ngx-translate/core';
 import { LineagePipe } from '@mm-pipes/message.pipe';
 import { ResourceIconPipe } from '@mm-pipes/resource-icon.pipe';
 import { TaskDueDatePipe } from '@mm-pipes/date.pipe';
@@ -58,6 +58,7 @@ export class TasksComponent implements OnInit, AfterViewInit, OnDestroy {
     private readonly lineageModelGeneratorService: LineageModelGeneratorService,
     private readonly interactionTrackingService: InteractionTrackingService,
     private readonly telemetryService: TelemetryService,
+    private readonly translateService: TranslateService,
   ) {
     this.tasksActions = new TasksActions(store);
     this.globalActions = new GlobalActions(store);
@@ -147,6 +148,7 @@ export class TasksComponent implements OnInit, AfterViewInit, OnDestroy {
     this.subscribeToRulesEngine();
     this.loading = true;
     this.debouncedReload = _debounce(this.refreshTasks.bind(this), 1000, { maxWait: 10 * 1000 });
+    this.subscription.add(this.translateService.onLangChange.subscribe(() => this.refreshTasks()));
     this.refreshTasks();
 
     this.interactionTrackingService.startSession('tasks');

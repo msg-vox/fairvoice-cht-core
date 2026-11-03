@@ -2,7 +2,7 @@ import { ComponentFixture, fakeAsync, flush, TestBed, tick } from '@angular/core
 import { MatIconModule } from '@angular/material/icon';
 import { MockStore, provideMockStore } from '@ngrx/store/testing';
 import { RouterTestingModule } from '@angular/router/testing';
-import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
+import { TranslateFakeLoader, TranslateLoader, TranslateModule, TranslateService } from '@ngx-translate/core';
 import { expect } from 'chai';
 import * as moment from 'moment';
 import sinon from 'sinon';
@@ -233,6 +233,43 @@ describe('TasksComponent', () => {
     expect(component.tasksDisabled).to.be.false;
     expect(!!component.errorStack).to.be.false;
     expect((<any>TasksActions.prototype.setTasksList).args).to.deep.eq([[expectedTasks]]);
+  });
+
+  it('refreshes translated task descriptions and priorities when the language changes', async () => {
+    const translateService = TestBed.inject(TranslateService);
+    translateService.setTranslation('en', { visit: 'Visit {{name}}', priority: 'High' });
+    translateService.setTranslation('fr', { visit: 'Visiter {{name}}', priority: 'Haute' });
+    await translateService.use('en').toPromise();
+    rulesEngineService.fetchTaskDocsForAllContacts.callsFake(() => Promise.resolve([{
+      emission: {
+        _id: 'task',
+        owner: 'person',
+        title: translateService.instant('visit', { name: 'Sam' }),
+        priorityLabel: translateService.instant('priority'),
+      },
+    }]));
+    const setTasksList = sinon.stub(TasksActions.prototype, 'setTasksList');
+    await new Promise(resolve => {
+      setTasksList.callsFake(resolve);
+      getComponent();
+    });
+    expect(setTasksList.lastCall.args[0][0]).to.include({ title: 'Visit Sam', priorityLabel: 'High' });
+
+    for (const [language, title, priorityLabel] of [
+      ['fr', 'Visiter Sam', 'Haute'],
+      ['en', 'Visit Sam', 'High'],
+    ]) {
+      await new Promise(resolve => {
+        setTasksList.callsFake(resolve);
+        translateService.use(language).subscribe();
+      });
+      expect(setTasksList.lastCall.args[0][0]).to.include({ title, priorityLabel });
+    }
+    expect(rulesEngineService.fetchTaskDocsForAllContacts.callCount).to.equal(3);
+
+    component.ngOnDestroy();
+    await translateService.use('fr').toPromise();
+    expect(rulesEngineService.fetchTaskDocsForAllContacts.callCount).to.equal(3);
   });
 
   it('rules engine yields no tasks', async () => {
