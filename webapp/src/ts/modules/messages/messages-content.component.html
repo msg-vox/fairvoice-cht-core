@@ -27,24 +27,28 @@
               <div class="marker" *ngIf="firstUnread && firstUnread.id === message.doc?._id">{{'Unread below' | translate}}</div>
               <span class="message-body" [class.last-message]="lastMessage">
                 <div class="data">
-                  <p [attr.test-id]="'sms-content'">
-                    {{message.doc?.sms_message?.message}}
-                    <span *ngIf="message.doc?.kujua_message && message.doc?.tasks && message.doc?.tasks[0]?.messages">
-                      {{message.doc?.tasks[0]?.messages[0]?.message}}
-                    </span>
-                  </p>
+                  <p *ngIf="message.doc?.type === dataMessageType; else smsMessage"
+                     class="data-message-text" test-id="data-message-content">{{message.doc.text}}</p>
+                  <ng-template #smsMessage>
+                    <p [attr.test-id]="'sms-content'">
+                      {{message.doc?.sms_message?.message}}
+                      <span *ngIf="message.doc?.kujua_message && message.doc?.tasks && message.doc?.tasks[0]?.messages">
+                        {{message.doc?.tasks[0]?.messages[0]?.message}}
+                      </span>
+                    </p>
 
-                  <!-- outgoing message -->
-                  <span class="task-state" *ngIf="message.doc?.kujua_message && message.doc?.tasks" [innerHTML]="(message.doc?.tasks[0] | state) | async"></span>
+                    <!-- outgoing message -->
+                    <span class="task-state" *ngIf="message.doc?.kujua_message && message.doc?.tasks" [innerHTML]="(message.doc?.tasks[0] | state) | async"></span>
 
-                  <!-- incoming message -->
-                  <span class="task-state" *ngIf="!message.doc?.kujua_message" [innerHTML]="(message.doc | state) | async"></span>
+                    <!-- incoming message -->
+                    <span class="task-state" *ngIf="!message.doc?.kujua_message" [innerHTML]="(message.doc | state) | async"></span>
 
-                  <!-- incoming message autoreply -->
-                  <span class="task-state" *ngIf="!message.doc?.kujua_message && message.doc?.tasks" [innerHTML]="(message.doc?.tasks[0] | autoreply) | async"></span>
+                    <!-- incoming message autoreply -->
+                    <span class="task-state" *ngIf="!message.doc?.kujua_message && message.doc?.tasks" [innerHTML]="(message.doc?.tasks[0] | autoreply) | async"></span>
+                  </ng-template>
                 </div>
 
-                <div class="actions">
+                <div class="actions" *ngIf="message.doc?.type !== dataMessageType">
                   <a class="btn btn-link fa fa-trash-o" (click)="deleteDoc(message.doc)" title="{{ 'Delete' | translate }}" mmAuth="can_edit,can_delete_messages"></a>
                 </div>
               </span>
@@ -55,6 +59,7 @@
       </div>
 
       <div
+        *ngIf="selectedConversation.messages[0]?.doc?.type !== dataMessageType"
         mmAuth="can_edit"
         id="message-footer"
         class="reply message-form"

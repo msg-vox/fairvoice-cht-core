@@ -10,6 +10,7 @@ import { ActivatedRoute } from '@angular/router';
 import { combineLatest, Subscription, take } from 'rxjs';
 import { select, Store } from '@ngrx/store';
 import { minBy as _minBy } from 'lodash-es';
+import { DOC_TYPES } from '@medic/constants';
 
 import { GlobalActions } from '@mm-actions/global';
 import { MessagesActions } from '@mm-actions/messages';
@@ -54,6 +55,7 @@ import { AutoreplyPipe, StatePipe } from '@mm-pipes/date.pipe';
   ]
 })
 export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewInit, AfterViewChecked {
+  readonly dataMessageType = DOC_TYPES.DATA_MESSAGE;
   private userCtx;
   private globalActions!: GlobalActions;
   private messagesActions!: MessagesActions;

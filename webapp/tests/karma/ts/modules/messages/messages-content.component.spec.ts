@@ -112,6 +112,17 @@ describe('MessagesContentComponent', () => {
     expect(component).to.exist;
   });
 
+  it('renders a data message as plain text without SMS actions', () => {
+    const text = '<b>Hello</b>\nHow are you?';
+    component.selectedConversation = { messages: [{ doc: { type: 'data_message', text } }] };
+    fixture.detectChanges();
+
+    const body = fixture.debugElement.query(By.css('[test-id="data-message-content"]'));
+    expect(body.nativeElement.textContent).to.equal(text);
+    expect(body.nativeElement.children.length).to.equal(0);
+    expect(fixture.debugElement.query(By.css('.task-state, .fa-trash-o, #message-footer'))).to.equal(null);
+  });
+
   it('ngOnDestroy() should unsubscribe from observables', () => {
     const spySubscriptionsUnsubscribe = sinon.spy(component.subscriptions, 'unsubscribe');
 
