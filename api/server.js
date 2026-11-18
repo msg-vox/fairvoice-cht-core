@@ -83,6 +83,7 @@ process
     logger.info('Running db migrations…');
     await migrations.run();
     logger.info('Database migrations completed successfully');
+    require('./src/services/data-messaging-directory-watcher').start();
 
     logger.info('Generating manifest');
     await manifest.generate();

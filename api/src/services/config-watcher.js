@@ -107,6 +107,7 @@ const handleTranslationsChange = () => {
   logger.info('Detected translations change - reloading');
   return loadTranslations()
     .then(() => initTransitionLib())
+    .then(() => configUpdatesEvents.emit('translationsUpdated'))
     .then(() => updateServiceWorker());
 };
 
@@ -182,6 +183,10 @@ const watch = (callback) => {
   configUpdatesEvents.on('updated', callback);
 };
 
+const watchTranslations = callback => {
+  configUpdatesEvents.on('translationsUpdated', callback);
+};
+
 const addUserRolesToDb = async () => {
   const roles = config.get('roles');
   if (!roles || typeof roles !== 'object') {
@@ -199,5 +204,6 @@ module.exports = {
   updateServiceWorker,
   loadTranslations,
   watch,
+  watchTranslations,
   addUserRolesToDb,
 };

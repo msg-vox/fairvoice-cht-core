@@ -8,6 +8,7 @@ const { v7: uuid } = require('uuid');
 const config = require('../../src/config');
 const db = require('../../src/db');
 const migration = require('../../src/migrations/create-data-messaging-db');
+const dataMessaging = require('../../src/services/data-messaging');
 const environment = require('@medic/environment');
 const { PREFIXES } = require('@medic/constants');
 
@@ -186,9 +187,13 @@ describe('Dedicated data messaging storage', () => {
 
   describe('message uploads', () => {
     const root = 'messaging-pilot';
+    const zone = 'messaging-zone';
     const site = 'messaging-site';
     const enabled = { enabled: true, pilot_root_place_ids: [root] };
-    const settings = { contact_types: [{ id: 'region' }, { id: 'site', parents: ['region'] }] };
+    const settings = {
+      contact_types: [{ id: 'region' }, { id: 'zone', parents: ['region'] }, { id: 'site', parents: ['zone'] }],
+      roles: { 'mm-online': { name: 'Coordinator' } },
+    };
     const clinicalIds = [];
     const compose = () => ({ ...message, _id: 'data-message:' + uuid() });
     const upload = (doc, name = sender) => request(api, sendPath, name, {
@@ -199,7 +204,7 @@ describe('Dedicated data messaging storage', () => {
 
     before(async () => {
       originalSettings = config.getAll();
-      for (const [name, place] of [[sender, site], [recipient, root]]) {
+      for (const [name, place] of [[sender, site], [recipient, root], [unrelated, zone]]) {
         const login = await db.users.get(accountId(name));
         await db.users.put({ ...login, facility_id: [place] });
       }
@@ -207,10 +212,12 @@ describe('Dedicated data messaging storage', () => {
         __dirname, '../../../ddocs/medic-db/medic/views/messages_by_state/map.js'
       ), 'utf8');
       const results = await db.medic.bulkDocs([
-        { _id: root, type: 'contact', contact_type: 'region' },
-        { _id: site, type: 'contact', contact_type: 'site', parent: { _id: root } },
+        { _id: root, name: 'Pilot region', type: 'contact', contact_type: 'region' },
+        { _id: zone, name: 'Pilot zone', type: 'contact', contact_type: 'zone', parent: { _id: root } },
+        { _id: site, type: 'contact', contact_type: 'site', parent: { _id: zone } },
         { _id: accountId(sender), type: 'user-settings' },
-        { _id: accountId(recipient), type: 'user-settings' },
+        { _id: accountId(recipient), type: 'user-settings', fullname: 'Alex', phone: '555-0100' },
+        { _id: accountId(unrelated), type: 'user-settings', fullname: 'Alex' },
         { _id: '_design/medic', views: { messages_by_state: { map: smsView } } },
         {
           _id: 'pending-sms', type: 'data_record', reported_date: 100,
@@ -303,6 +310,50 @@ describe('Dedicated data messaging storage', () => {
       const responses = await Promise.all([upload(doc), upload(doc)]);
       assert.deepEqual(responses.map(response => response.status).sort(), [200, 201]);
       assert.match((await db.dataMessaging.get(doc._id))._rev, /^1-/);
+    });
+
+    it('publishes minimal directory snapshots and replaces entries after reassignment and disablement', async () => {
+      await dataMessaging.rebuildDirectories();
+      const initial = await sync(api, sender);
+      assert.equal(initial.account_id, accountId(sender));
+      assert.deepEqual(initial.directory, [
+        {
+          account_id: accountId(recipient),
+          display_name: 'Alex',
+          role_label: 'Coordinator',
+          place_label: 'Pilot region',
+        },
+        {
+          account_id: accountId(unrelated),
+          display_name: 'Alex',
+          role_label: 'Coordinator',
+          place_label: 'Pilot zone',
+        },
+      ]);
+      assert.equal((await sync(api, recipient)).account_id, accountId(recipient));
+      assert.ok((await sync(api, recipient)).directory.some(entry => entry.account_id === accountId(sender)));
+
+      const place = await db.medic.get(zone);
+      await db.medic.put({ ...place, name: 'Renamed zone' });
+      const roles = { 'mm-online': { name: 'Supervisor' } };
+      config.set({ ...settings, roles, data_messaging: enabled });
+      await dataMessaging.rebuildDirectories();
+      const relabelled = (await sync(api, sender)).directory;
+      assert.deepEqual(relabelled, [
+        { ...initial.directory[0], role_label: 'Supervisor' },
+        { ...initial.directory[1], role_label: 'Supervisor', place_label: 'Renamed zone' },
+      ]);
+
+      const login = await db.users.get(accountId(unrelated));
+      await db.users.put({ ...login, facility_id: [site] });
+      await dataMessaging.rebuildDirectories();
+      assert.deepEqual((await sync(api, sender)).directory, [relabelled[0]]);
+
+      config.set({ ...settings, data_messaging: { ...enabled, enabled: false } });
+      await dataMessaging.rebuildDirectories();
+      const disabled = await sync(api, sender);
+      assert.deepEqual(disabled.directory, []);
+      assert.ok(disabled.messages.length > 0);
     });
   });
 });
