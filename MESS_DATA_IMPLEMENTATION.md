@@ -91,6 +91,8 @@ Online-only CHT requests can reach CouchDB views, changes, and other queries thr
 - `DataMessagingStoreService.submit` saves an immutable message and its initial delivery state together in the account’s messaging database for offline-capable accounts. The local outbox record keeps delivery metadata outside the message sent to the API. Online-only accounts submit directly and receive a sent result only when the API confirms the original ID.
 - Accepted history uses canonical message IDs. The local store combines history and outbox records for callers and deduplicates exact matches. A conflicting canonical message can coexist with a rejected local attempt so the sender still has its text.
 - The send endpoint supplies `details: "recipient_ineligible"` with HTTP 403 for an eligibility rejection. The existing session and sender checks still return their own errors.
+- `DataMessagingSyncService.sync` coalesces overlapping runs for the same account. It uploads pending messages with their original IDs and downloads accepted pages through the scoped API. A confirmed upload or an exact match on download marks a send as sent. Eligibility, invalid payload, and ID conflict rejections stop automatic retries and retain the original text. Connectivity, session, and server errors leave sends waiting.
+- The existing `_local/data-message-directory` document holds the directory snapshot and the opaque cursor. A sync writes the page’s messages and reconciles their outbox states before saving the directory and cursor together. A revision conflict reloads the saved cursor. A failed write leaves the previous cursor in place for replay. A `null` directory preserves the previous snapshot.
 
 ### Verification
 

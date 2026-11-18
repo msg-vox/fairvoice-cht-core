@@ -6,6 +6,7 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { v7 as uuid } from 'uuid';
 import { DataMessagingDirectoryService } from '@mm-services/data-messaging-directory.service';
+import { DataMessagingService } from '@mm-services/data-messaging.service';
 import { DbService } from '@mm-services/db.service';
 import { LocationService } from '@mm-services/location.service';
 import { SessionService } from '@mm-services/session.service';
@@ -30,8 +31,11 @@ describe('Data messaging directory service', () => {
     onlineOnly = true;
     const db = new DbService(session, TestBed.inject(LocationService), TestBed.inject(NgZone));
     onlineOnly = false;
-    return new DataMessagingDirectoryService(TestBed.inject(HttpClient), session, db);
+    const messaging = new DataMessagingService(TestBed.inject(HttpClient), session);
+    return new DataMessagingDirectoryService(messaging, session, db);
   };
+
+  const page = (account_id, directory) => ({ account_id, directory, messages: [], next_since: '0', has_more: false });
 
   beforeEach(() => {
     name = 'sender';
@@ -59,7 +63,7 @@ describe('Data messaging directory service', () => {
 
   const refresh = (directory, owner = name) => {
     const result = service.refreshDirectory();
-    http.expectOne({ method: 'GET', url: path }).flush({ account_id: accountId(owner), directory });
+    http.expectOne({ method: 'GET', url: path }).flush(page(accountId(owner), directory));
     return result;
   };
 
@@ -88,7 +92,7 @@ describe('Data messaging directory service', () => {
     const oldRequest = service.refreshDirectory();
     const request = http.expectOne(path);
     name = 'other';
-    request.flush({ account_id: accountId('sender'), directory: [] });
+    request.flush(page(accountId('sender'), []));
     await expect(oldRequest).to.be.rejectedWith('does not match the signed-in account');
     await expect(refresh(entries, 'sender')).to.be.rejectedWith('does not match the signed-in account');
     expect(await service.getDirectory()).to.equal(null);
@@ -101,7 +105,7 @@ describe('Data messaging directory service', () => {
     onlineOnly = true;
     const open = sinon.spy(DbService.prototype, 'getMessaging');
     const result = service.getDirectory();
-    http.expectOne(path).flush({ account_id: accountId(name), directory: entries });
+    http.expectOne(path).flush(page(accountId(name), entries));
     expect(await result).to.deep.equal(entries);
     expect(open.callCount).to.equal(0);
   });

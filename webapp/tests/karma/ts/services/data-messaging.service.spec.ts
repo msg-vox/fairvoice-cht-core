@@ -98,4 +98,29 @@ describe('Data messaging service', () => {
     expect((await second).value).to.deep.equal({ id: current._id, status: 'accepted' });
     expect((await uploads.next()).done).to.equal(true);
   });
+
+  it('rejects a page that cannot advance the cursor', async () => {
+    const next_since = '10-test';
+    const result = service.getSyncPage(next_since);
+    const request = httpMock.expectOne({ method: 'GET', url: '/api/v1/data-messaging/sync?since=10-test' });
+    request.flush({
+      account_id: 'org.couchdb.user:sender', directory: [], messages: [], has_more: true, next_since,
+    });
+    await expect(result).to.be.rejectedWith('Invalid messaging sync page');
+  });
+
+  it('rejects a downloaded message belonging to two other accounts', async () => {
+    const result = service.getSyncPage();
+    const request = httpMock.expectOne('/api/v1/data-messaging/sync');
+    request.flush({
+      account_id: 'org.couchdb.user:sender',
+      directory: null,
+      messages: [{
+        _id: 'data-message:other', sender_id: 'org.couchdb.user:other', recipient_id: recipientId,
+      }],
+      has_more: false,
+      next_since: '10-test',
+    });
+    await expect(result).to.be.rejectedWith('does not belong to the signed-in account');
+  });
 });
