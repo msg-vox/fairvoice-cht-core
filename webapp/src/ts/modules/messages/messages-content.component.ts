@@ -7,6 +7,7 @@ import {
   OnInit
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
+import { ClipboardModule } from '@angular/cdk/clipboard';
 import { combineLatest, Subscription, take } from 'rxjs';
 import { select, Store } from '@ngrx/store';
 import { minBy as _minBy } from 'lodash-es';
@@ -30,6 +31,7 @@ import { AuthDirective } from '@mm-directives/auth.directive';
 import { FormsModule } from '@angular/forms';
 import { TranslatePipe } from '@ngx-translate/core';
 import { AutoreplyPipe, StatePipe } from '@mm-pipes/date.pipe';
+import { DataMessageComposerComponent } from './data-message-composer.component';
 
 /**
 *  In this context the URL parameter "id", can be:
@@ -48,6 +50,8 @@ import { AutoreplyPipe, StatePipe } from '@mm-pipes/date.pipe';
     NgClass,
     AuthDirective,
     FormsModule,
+    ClipboardModule,
+    DataMessageComposerComponent,
     AsyncPipe,
     TranslatePipe,
     AutoreplyPipe,

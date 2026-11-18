@@ -27,8 +27,17 @@
               <div class="marker" *ngIf="firstUnread && firstUnread.id === message.doc?._id">{{'Unread below' | translate}}</div>
               <span class="message-body" [class.last-message]="lastMessage">
                 <div class="data">
-                  <p *ngIf="message.doc?.type === dataMessageType; else smsMessage"
-                     class="data-message-text" test-id="data-message-content">{{message.doc.text}}</p>
+                  <ng-container *ngIf="message.doc?.type === dataMessageType; else smsMessage">
+                    <p class="data-message-text" test-id="data-message-content">{{message.doc.text}}</p>
+                    @if (message.delivery; as delivery) {
+                      <div class="task-state" role="status">{{ ('messages.data.delivery.' + delivery) | translate }}</div>
+                      @if (delivery === 'recipient_ineligible' || delivery === 'failed') {
+                        <button type="button" class="btn btn-link" [cdkCopyToClipboard]="message.doc.text">
+                          {{ 'messages.data.copy' | translate }}
+                        </button>
+                      }
+                    }
+                  </ng-container>
                   <ng-template #smsMessage>
                     <p [attr.test-id]="'sms-content'">
                       {{message.doc?.sms_message?.message}}
@@ -57,6 +66,9 @@
           </ul>
         </div>
       </div>
+
+      <mm-data-message-composer *ngIf="selectedConversation.dataRecipientId as recipientId"
+                                [recipientId]="recipientId"></mm-data-message-composer>
 
       <div
         *ngIf="selectedConversation.messages[0]?.doc?.type !== dataMessageType"

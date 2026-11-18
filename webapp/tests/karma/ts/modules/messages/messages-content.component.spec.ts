@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed, waitForAsync } from '@angular/core/testing';
+import { Clipboard } from '@angular/cdk/clipboard';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
@@ -121,6 +122,23 @@ describe('MessagesContentComponent', () => {
     expect(body.nativeElement.textContent).to.equal(text);
     expect(body.nativeElement.children.length).to.equal(0);
     expect(fixture.debugElement.query(By.css('.task-state, .fa-trash-o, #message-footer'))).to.equal(null);
+  });
+
+  it('shows data message delivery states and lets the sender copy rejected text', () => {
+    const copy = sinon.stub(TestBed.inject(Clipboard), 'copy').returns(true);
+    const text = 'Text to send to another recipient';
+    component.selectedConversation = { messages: [
+      { doc: { _id: 'first', type: 'data_message', text: 'Pending' }, delivery: 'waiting' },
+      { doc: { _id: 'second', type: 'data_message', text: 'Accepted' }, delivery: 'sent' },
+      { doc: { _id: 'third', type: 'data_message', text }, delivery: 'recipient_ineligible' },
+    ] };
+    fixture.detectChanges();
+    const statuses = fixture.debugElement.queryAll(By.css('.task-state'));
+    expect(statuses.map(status => status.nativeElement.textContent.trim())).to.deep.equal([
+      'messages.data.delivery.waiting', 'messages.data.delivery.sent', 'messages.data.delivery.recipient_ineligible',
+    ]);
+    fixture.debugElement.query(By.css('[data-id="third"] button')).nativeElement.click();
+    expect(copy.calledOnceWithExactly(text)).to.equal(true);
   });
 
   it('ngOnDestroy() should unsubscribe from observables', () => {
