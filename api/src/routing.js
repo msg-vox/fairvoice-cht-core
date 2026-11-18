@@ -53,6 +53,7 @@ const infodoc = require('./controllers/infodoc');
 const impact = require('./controllers/impact');
 const targetController = require('./controllers/target');
 const credentials = require('./controllers/credentials');
+const dataMessaging = require('./controllers/data-messaging');
 const archive = require('./controllers/archive');
 const authorization = require('./middleware/authorization');
 const deprecation = require('./middleware/deprecation');
@@ -788,6 +789,8 @@ app.putJson(`${appPrefix}update_settings/${environment.ddoc}`, settings.put); //
 app.putJson('/api/v1/settings', settings.put);
 
 app.get('/api/couch-config-attachments', couchConfigController.getAttachments);
+
+app.get('/api/v1/data-messaging/sync', authorization.handleAuthErrors, dataMessaging.sync);
 
 app.put(
   '/api/v1/credentials/:key',

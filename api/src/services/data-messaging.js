@@ -7,6 +7,12 @@ const { PREFIXES } = require('@medic/constants');
 const { getContactType, isParentOf } = require('@medic/contact-types-utils');
 const { users } = require('@medic/user-management')(config, db, dataContext);
 
+const MESSAGE_TYPE = 'data_message';
+const MESSAGE_PREFIX = 'data-message:';
+const DIRECTORY_TYPE = 'data_message_directory';
+const DIRECTORY_PREFIX = 'data-message-directory:';
+const SYNC_PAGE_SIZE = 100;
+
 const getConfig = () => {
   const settings = config.get('data_messaging');
   const roots = settings?.pilot_root_place_ids;
@@ -103,8 +109,54 @@ const createRecipientPolicy = () => {
   };
 };
 
+const getDirectory = async accountId => {
+  const id = DIRECTORY_PREFIX + accountId;
+  const doc = await db.dataMessaging.get(id).catch(err => {
+    if (err.status !== 404) {
+      throw err;
+    }
+  });
+  if (doc?.type !== DIRECTORY_TYPE || doc.owner_id !== accountId || !Array.isArray(doc.entries)) {
+    return null;
+  }
+  return doc.entries.map(({ account_id, display_name, role_label, place_label }) => ({
+    account_id, display_name, role_label, place_label,
+  }));
+};
+
+const getSyncPage = async (accountId, since) => {
+  const selector = {
+    type: MESSAGE_TYPE,
+    $or: [{ sender_id: accountId }, { recipient_id: accountId }],
+  };
+  const [changes, directory] = await Promise.all([
+    db.dataMessaging.changes({
+      since,
+      limit: SYNC_PAGE_SIZE,
+      include_docs: true,
+      selector,
+    }),
+    getDirectory(accountId),
+  ]);
+  const messages = changes.results
+    .map(change => change.doc)
+    .filter(doc => doc?.type === MESSAGE_TYPE && !doc._deleted && doc._id.startsWith(MESSAGE_PREFIX) &&
+      (doc.sender_id === accountId || doc.recipient_id === accountId))
+    .map(({ _id, sender_id, recipient_id, text, created_at }) => ({
+      _id, sender_id, recipient_id, text, created_at,
+    }));
+
+  return {
+    messages,
+    directory,
+    next_since: String(changes.last_seq),
+    has_more: changes.results.length === SYNC_PAGE_SIZE,
+  };
+};
+
 module.exports = {
   getConfig,
+  getSyncPage,
 
   getAccount: async req => {
     const { name } = await auth.getUserCtx(req);
