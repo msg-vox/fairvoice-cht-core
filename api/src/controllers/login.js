@@ -612,9 +612,6 @@ module.exports = {
 
     try {
       const requireFreshAuth = cookie.get(req, 'oidc_fresh') !== undefined;
-      if (requireFreshAuth) {
-        cookie.clearOidcFreshLogin(res);
-      }
       const transaction = await sso.buildTransaction(requireFreshAuth);
       const redirectUrl = new URL(`${getAppUrl()}/${environment.db}/login/oidc`);
       const authUrl = await sso.getAuthorizationUrl(redirectUrl.toString(), transaction);

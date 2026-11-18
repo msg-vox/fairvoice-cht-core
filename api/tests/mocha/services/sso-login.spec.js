@@ -1,4 +1,7 @@
 const { expect } = require('chai');
+const { generateKeyPairSync } = require('node:crypto');
+const jwt = require('jsonwebtoken');
+const { Configuration, authorizationCodeGrant, customFetch } = require('openid-client');
 const sinon = require('sinon');
 const db = require('../../../src/db');
 const config = require('../../../src/config');
@@ -302,9 +305,36 @@ describe('SSO login', () => {
       ];
     });
 
-    it('passes maxAge zero for fresh authentication', async () => {
-      client.authorizationCodeGrant.resolves({ claims: () => ({ email: 'test@email.com' }) });
-      await service.getIdToken(REDIRECT_URL, { ...TRANSACTION, f: true });
+    it('accepts a freshly authenticated ID token with maxAge zero', async () => {
+      const { client_id: clientId } = SETTINGS.oidc_provider;
+      const oidcConfig = new Configuration(SERVER_METADATA, clientId, CLIENT_SECRET);
+      client.allowInsecureRequests(oidcConfig);
+      client.discovery.resolves(oidcConfig);
+      client.authorizationCodeGrant.callsFake(authorizationCodeGrant);
+      const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+      const email = 'test@email.com';
+      const idToken = jwt.sign({
+        sub: 'user',
+        email,
+        nonce: TRANSACTION.n,
+        auth_time: Math.floor(Date.now() / 1000),
+      }, privateKey, {
+        algorithm: 'RS256',
+        issuer: SERVER_METADATA.issuer,
+        audience: clientId,
+        expiresIn: 60,
+      });
+      oidcConfig[customFetch] = () => Promise.resolve(Response.json({
+        access_token: 'access-token',
+        token_type: 'Bearer',
+        id_token: idToken,
+      }));
+      const callbackUrl = new URL(REDIRECT_URL);
+      callbackUrl.searchParams.set('state', TRANSACTION.s);
+
+      const result = await service.getIdToken(callbackUrl, { ...TRANSACTION, f: true });
+
+      expect(result).to.deep.equal({ username: email, locale: 'en' });
       expect(client.authorizationCodeGrant.firstCall.args[2]).to.include({ maxAge: 0 });
     });
 

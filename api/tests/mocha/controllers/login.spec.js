@@ -1217,6 +1217,8 @@ describe('login controller', () => {
     });
 
     it('gets id token and redirects to homepage with session cookie', async () => {
+      req.headers.cookie += '; oidc_fresh=1';
+      const clearCookie = sinon.stub(res, 'clearCookie');
       const idToken = { username: 'lil', locale: 'en' };
       sso.getIdToken.resolves(idToken);
       const sessionCookie = 'my-session-cookie';
@@ -1239,6 +1241,9 @@ describe('login controller', () => {
         ['AuthSession', sessionCookie, { httpOnly: true, sameSite: 'lax', secure: false }],
         ['userCtx', JSON.stringify(userContext), DEFAULT_COOKIE_OPTIONS],
         ['locale', idToken.locale, DEFAULT_COOKIE_OPTIONS]
+      ]);
+      chai.expect(clearCookie.getCalls().map(call => call.args[0])).to.deep.equal([
+        'oidc_transaction', 'login', 'oidc_fresh',
       ]);
       chai.expect(logger.error.notCalled).to.be.true;
       chai.expect(res.status.calledOnceWithExactly(302)).to.be.true;
@@ -1271,6 +1276,8 @@ describe('login controller', () => {
     });
 
     it('redirects to login page with login error when unexpected error occurs', async () => {
+      req.headers.cookie += '; oidc_fresh=1';
+      const clearCookie = sinon.stub(res, 'clearCookie');
       config.get.returns('');
 
       await controller.oidcLogin(req, res);
@@ -1282,6 +1289,8 @@ describe('login controller', () => {
       chai.expect(auth.getUserCtx.notCalled).to.be.true;
       chai.expect(users.getUserDoc.notCalled).to.be.true;
       chai.expect(res.cookie.notCalled).to.be.true;
+      chai.expect(clearCookie.calledOnce).to.be.true;
+      chai.expect(clearCookie.firstCall.args[0]).to.equal('oidc_transaction');
       chai.expect(logger.error.calledOnce).to.be.true;
       chai.expect(logger.error.args[0][0]).to.equal('Error logging in via SSO: %o');
       chai.expect(logger.error.args[0][1].message).to.equal('The app_url value is not configured.');
@@ -1375,7 +1384,7 @@ describe('login controller', () => {
       chai.expect(config.get.calledOnceWithExactly('app_url')).to.be.true;
     });
 
-    it('consumes the fresh-login cookie when authorizing', async () => {
+    it('requests fresh authentication and keeps the fresh-login cookie until sign-in succeeds', async () => {
       req.headers.cookie = 'oidc_fresh=1';
       const clearCookie = sinon.stub(res, 'clearCookie');
       sso.getAuthorizationUrl.returns(new URL('https://oidc.server/'));
@@ -1383,7 +1392,7 @@ describe('login controller', () => {
       await controller.oidcAuthorize(req, res);
 
       chai.expect(sso.buildTransaction.calledOnceWithExactly(true)).to.be.true;
-      chai.expect(clearCookie.firstCall.args[0]).to.equal('oidc_fresh');
+      chai.expect(clearCookie.notCalled).to.be.true;
       chai.expect(res.cookie.firstCall.args[0]).to.equal('oidc_transaction');
     });
 
