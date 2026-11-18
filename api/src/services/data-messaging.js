@@ -59,6 +59,50 @@ const hasAssignedAncestor = async (descendant, ancestor, getLineage) => {
   return false;
 };
 
+const createRecipientPolicy = () => {
+  const { enabled, pilotRootPlaceIds } = getConfig();
+  const pilotRoots = new Set(pilotRootPlaceIds);
+  const settings = config.getAll();
+  const readPlace = dataContext.bind(Place.v1.get);
+  const places = new Map();
+  const accounts = new Map();
+
+  const getPlace = id => {
+    if (!places.has(id)) {
+      places.set(id, readPlace(Qualifier.byUuid(id)));
+    }
+    return places.get(id);
+  };
+
+  const getAccount = name => {
+    if (!accounts.has(name)) {
+      accounts.set(name, users.getMessagingAccount(name));
+    }
+    return accounts.get(name);
+  };
+
+  const getLineage = id => getPilotLineage(id, pilotRoots, getPlace, settings);
+
+  return async (senderId, recipientId) => {
+    const senderName = getUsername(senderId);
+    const recipientName = getUsername(recipientId);
+    if (!enabled || !senderName || !recipientName || senderId === recipientId) {
+      return false;
+    }
+
+    const [sender, recipient] = await Promise.all([
+      getAccount(senderName),
+      getAccount(recipientName),
+    ]);
+    if (!sender?.facilityIds.length || !recipient?.facilityIds.length) {
+      return false;
+    }
+
+    return await hasAssignedAncestor(sender, recipient, getLineage) ||
+      hasAssignedAncestor(recipient, sender, getLineage);
+  };
+};
+
 module.exports = {
   getConfig,
 
@@ -67,34 +111,16 @@ module.exports = {
     return users.getMessagingAccount(name);
   },
 
-  canMessage: async (senderId, recipientId) => {
-    const { enabled, pilotRootPlaceIds } = getConfig();
-    const senderName = getUsername(senderId);
-    const recipientName = getUsername(recipientId);
-    if (!enabled || !senderName || !recipientName || senderId === recipientId) {
-      return false;
-    }
+  canMessage: (senderId, recipientId) => createRecipientPolicy()(senderId, recipientId),
 
-    const [sender, recipient] = await Promise.all([
-      users.getMessagingAccount(senderName),
-      users.getMessagingAccount(recipientName),
-    ]);
-    if (!sender?.facilityIds.length || !recipient?.facilityIds.length) {
-      return false;
-    }
-
-    const readPlace = dataContext.bind(Place.v1.get);
-    const places = new Map();
-    const getPlace = id => {
-      if (!places.has(id)) {
-        places.set(id, readPlace(Qualifier.byUuid(id)));
+  getEligibleRecipientIds: async (senderId, candidateIds) => {
+    const canMessage = createRecipientPolicy();
+    const recipients = [];
+    for (const candidateId of new Set(candidateIds)) {
+      if (await canMessage(senderId, candidateId)) {
+        recipients.push(candidateId);
       }
-      return places.get(id);
-    };
-    const settings = config.getAll();
-    const pilotRoots = new Set(pilotRootPlaceIds);
-    const getLineage = id => getPilotLineage(id, pilotRoots, getPlace, settings);
-    return await hasAssignedAncestor(sender, recipient, getLineage) ||
-      hasAssignedAncestor(recipient, sender, getLineage);
+    }
+    return recipients;
   },
 };

@@ -131,6 +131,21 @@ describe('Data messaging contract', () => {
       });
     });
 
+    it('filters and deduplicates directory candidates using the send policy', async () => {
+      const sender = accountId('site');
+      const candidates = ['hub', 'peer', 'pilot', 'hub', 'inactive', 'site'].map(accountId);
+      assert.deepEqual(await dataMessaging.getEligibleRecipientIds(sender, candidates), [
+        accountId('hub'),
+        accountId('pilot'),
+      ]);
+      assert.equal(getAccount.withArgs('site').callCount, 1);
+      assert.equal(getAccount.withArgs('hub').callCount, 1);
+
+      getAccount.withArgs('site').resolves({ id: sender, facilityIds: ['other-zone'] });
+      assert.equal(await canMessage('site', 'hub'), false);
+      assert.deepEqual(await dataMessaging.getEligibleRecipientIds(sender, candidates), [accountId('pilot')]);
+    });
+
     it('honors an outer pilot root when another pilot root is nested below it', async () => {
       getSettings.returns({ enabled: true, pilot_root_place_ids: ['hub', 'pilot'] });
       assert.equal(await canMessage('site', 'pilot'), true);
