@@ -14,6 +14,7 @@ import { TranslateService } from '@mm-services/translate.service';
 import { MigrationsService } from '@mm-services/migrations.service';
 import { ReplicationService } from '@mm-services/replication.service';
 import { PerformanceService } from '@mm-services/performance.service';
+import { DataMessagingSyncService } from '@mm-services/data-messaging-sync.service';
 import { DOC_IDS, DOC_TYPES } from '@medic/constants';
 
 const READ_ONLY_TYPES = ['form', DOC_TYPES.TRANSLATIONS, DOC_TYPES.UI_EXTENSION];
@@ -89,6 +90,7 @@ export class DBSyncService {
     private translateService:TranslateService,
     private migrationsService:MigrationsService,
     private replicationService:ReplicationService,
+    private dataMessagingSync:DataMessagingSyncService,
   ) {
     this.globalActions = new GlobalActions(this.store);
   }
@@ -98,6 +100,7 @@ export class DBSyncService {
   private knownOnlineState = window.navigator.onLine;
   private canReplicateToServer = false;
   private syncIsRecent = false; // true when a replication has succeeded within one interval
+  private messagingInterval?: ReturnType<typeof setInterval>;
   private readonly intervalPromises: { sync?: any; meta?: any} = {
     sync: undefined,
     meta: undefined,
@@ -315,7 +318,19 @@ export class DBSyncService {
 
     this.intervalPromises.sync = setInterval(() => {
       this.syncIsRecent = false;
-      this.sync();
+      this.syncClinical();
+    }, SYNC_INTERVAL);
+  }
+
+  private syncDataMessages() {
+    void this.dataMessagingSync.sync().catch(() => console.warn('Data messaging sync did not complete'));
+  }
+
+  private startMessagingInterval() {
+    this.messagingInterval ??= setInterval(() => {
+      if (this.knownOnlineState && this.isEnabled()) {
+        this.syncDataMessages();
+      }
     }, SYNC_INTERVAL);
   }
 
@@ -354,8 +369,12 @@ export class DBSyncService {
     if (this.knownOnlineState !== onlineStatus) {
       this.knownOnlineState = !!onlineStatus;
 
-      if (this.knownOnlineState && !this.syncIsRecent) {
-        return this.startSyncMedic();
+      if (this.knownOnlineState && this.isEnabled()) {
+        this.startMessagingInterval();
+        this.syncDataMessages();
+        if (!this.syncIsRecent) {
+          return this.startSyncMedic();
+        }
       }
     }
   }
@@ -377,7 +396,17 @@ export class DBSyncService {
   *
   * @returns Promise which resolves when both directions of the replication complete.
   */
-  async sync(force?, quick?) {
+  sync(force?, quick?) {
+    if (this.isEnabled()) {
+      this.startMessagingInterval();
+      if (!quick && (this.knownOnlineState || force)) {
+        this.syncDataMessages();
+      }
+    }
+    return this.syncClinical(force, quick);
+  }
+
+  private async syncClinical(force?, quick?) {
     if (!this.isEnabled()) {
       this.sendUpdate({ state: SyncStatus.Disabled });
       return Promise.resolve();

@@ -7,7 +7,7 @@ import { DOC_IDS, DOC_TYPES } from '@medic/constants';
 import { SessionService } from '@mm-services/session.service';
 import { RulesEngineService } from '@mm-services/rules-engine.service';
 import { DbSyncRetryService } from '@mm-services/db-sync-retry.service';
-import { DBSyncService } from '@mm-services/db-sync.service';
+import { DBSyncService, SyncStatus } from '@mm-services/db-sync.service';
 import { DbService } from '@mm-services/db.service';
 import { AuthService } from '@mm-services/auth.service';
 import { CheckDateService } from '@mm-services/check-date.service';
@@ -16,6 +16,7 @@ import { PerformanceService } from '@mm-services/performance.service';
 import { TranslateService } from '@mm-services/translate.service';
 import { MigrationsService } from '@mm-services/migrations.service';
 import { ReplicationService } from '@mm-services/replication.service';
+import { DataMessagingSyncService } from '@mm-services/data-messaging-sync.service';
 
 describe('DBSync service', () => {
   let service:DBSyncService;
@@ -40,6 +41,7 @@ describe('DBSync service', () => {
   let translateService;
   let migrationService;
   let replicationService;
+  let syncDataMessages;
   let store;
 
   let localMedicDb;
@@ -123,6 +125,7 @@ describe('DBSync service', () => {
     checkDateService = { check: sinon.stub().resolves() };
     migrationService = { runMigrations: sinon.stub().resolves() };
     replicationService = { replicateFrom: sinon.stub() };
+    syncDataMessages = sinon.stub().resolves();
 
     TestBed.configureTestingModule({
       providers: [
@@ -138,6 +141,7 @@ describe('DBSync service', () => {
         { provide: CheckDateService, useValue: checkDateService },
         { provide: MigrationsService, useValue: migrationService },
         { provide: ReplicationService, useValue: replicationService },
+        { provide: DataMessagingSyncService, useValue: { sync: syncDataMessages } },
       ]
     });
 
@@ -154,6 +158,7 @@ describe('DBSync service', () => {
       isOnlineOnly.returns(true);
       return service.sync().then(() => {
         expectSyncCall(0);
+        expect(syncDataMessages.callCount).to.equal(0);
         expect(checkDateService.check.callCount).to.equal(0);
       });
     });
@@ -369,15 +374,18 @@ describe('DBSync service', () => {
       // sync with default online status
       await service.sync();
       expectSyncCall(1);
+      expect(syncDataMessages.callCount).to.equal(1);
       // go offline, don't attempt to sync
       service.setOnlineStatus(false);
       clock.tick(25 * 60 * 1000 + 1);
       await nextTick();
       expectSyncCall(1);
+      expect(syncDataMessages.callCount).to.equal(1);
 
       // when you come back online eventually, sync immediately
       service.setOnlineStatus(true);
       expectSyncCall(1);
+      expect(syncDataMessages.callCount).to.equal(2);
 
       // wait for the inprogress sync to complete before continuing the test
       await service.sync();
@@ -388,12 +396,38 @@ describe('DBSync service', () => {
       service.setOnlineStatus(false);
       service.setOnlineStatus(true);
       expectSyncCall(2);
+      expect(syncDataMessages.callCount).to.equal(4);
 
       // eventually, sync on the timer
       clock.tick(5 * 60 * 1000 + 1);
       await nextTick();
 
       expectSyncCall(3);
+      expect(syncDataMessages.callCount).to.equal(5);
+    });
+
+    it('runs messaging on manual sync without treating messaging failure as a clinical failure', async () => {
+      getItem.withArgs('medic-last-replicated-seq').returns(99);
+      isOnlineOnly.returns(false);
+      hasAuth.resolves(true);
+      syncDataMessages.rejects(new Error('messaging unavailable'));
+      const update = sinon.stub();
+      service.subscribe(update);
+
+      await service.sync(true);
+
+      expect(syncDataMessages.callCount).to.equal(1);
+      expect(update.lastCall.args[0]).to.deep.equal({ to: SyncStatus.Success, from: SyncStatus.Success });
+    });
+
+    it('keeps the periodic messaging timer when clinical migrations fail', async () => {
+      migrationService.runMigrations.rejects(new Error('migration failed'));
+      await expect(service.sync()).to.be.rejectedWith('migration failed');
+      expect(syncDataMessages.callCount).to.equal(1);
+
+      clock.tick(5 * 60 * 1000);
+      expect(syncDataMessages.callCount).to.equal(2);
+      expectSyncCall(0);
     });
 
     it('does not sync to remote if user lacks "can_edit" permission', () => {

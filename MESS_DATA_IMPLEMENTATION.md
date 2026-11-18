@@ -93,6 +93,7 @@ Online-only CHT requests can reach CouchDB views, changes, and other queries thr
 - The send endpoint supplies `details: "recipient_ineligible"` with HTTP 403 for an eligibility rejection. The existing session and sender checks still return their own errors.
 - `DataMessagingSyncService.sync` coalesces overlapping runs for the same account. It uploads pending messages with their original IDs and downloads accepted pages through the scoped API. A confirmed upload or an exact match on download marks a send as sent. Eligibility, invalid payload, and ID conflict rejections stop automatic retries and retain the original text. Connectivity, session, and server errors leave sends waiting.
 - The existing `_local/data-message-directory` document holds the directory snapshot and the opaque cursor. A sync writes the page’s messages and reconciles their outbox states before saving the directory and cursor together. A revision conflict reloads the saved cursor. A failed write leaves the previous cursor in place for replay. A `null` directory preserves the previous snapshot.
+- The WebApp starts messaging sync through `DBSyncService` at startup, on reconnect, and on manual sync. A separate five-minute timer runs while connected even when clinical migrations fail or clinical quick syncs keep resetting their timer. The messaging run does not change the clinical sync status.
 
 ### Verification
 
