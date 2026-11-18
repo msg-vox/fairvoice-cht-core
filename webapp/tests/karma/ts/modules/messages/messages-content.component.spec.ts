@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed, waitForAsync } from '@angular/core/testing';
+import { ComponentFixture, fakeAsync, TestBed, tick, waitForAsync } from '@angular/core/testing';
 import { Clipboard } from '@angular/cdk/clipboard';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
@@ -8,7 +8,7 @@ import { By } from '@angular/platform-browser';
 import { provideMockStore } from '@ngrx/store/testing';
 import sinon from 'sinon';
 import { assert, expect } from 'chai';
-import { Observable } from 'rxjs';
+import { Observable, Subject } from 'rxjs';
 
 import { MessagesContentComponent } from '@mm-modules/messages/messages-content.component';
 import { MessageContactService } from '@mm-services/message-contact.service';
@@ -25,6 +25,10 @@ import { SenderComponent } from '@mm-components/sender/sender.component';
 import { PerformanceService } from '@mm-services/performance.service';
 import { AuthDirective } from '@mm-directives/auth.directive';
 import { AuthService } from '@mm-services/auth.service';
+import { DataMessagingConversationsService } from '@mm-services/data-messaging-conversations.service';
+import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
+import { DataMessagingService } from '@mm-services/data-messaging.service';
+import { DataMessagingStoreService } from '@mm-services/data-messaging-store.service';
 
 describe('MessagesContentComponent', () => {
   let component: MessagesContentComponent;
@@ -42,6 +46,8 @@ describe('MessagesContentComponent', () => {
   let activatedRouteParams;
   let performanceService;
   let stopPerformanceTrackStub;
+  let dataHistory;
+  let dataConversations;
 
   beforeEach(waitForAsync(() => {
     stopPerformanceTrackStub = sinon.stub();
@@ -62,6 +68,8 @@ describe('MessagesContentComponent', () => {
     markReadService = { markAsRead: sinon.stub().resolves() };
     sendMessageService = { send: sinon.stub().resolves() };
     modalService = { show: sinon.stub() };
+    dataHistory = { changes: new Subject() };
+    dataConversations = { getConversations: sinon.stub().resolves([]) };
     const mockedSelectors = [
       { selector: 'getSelectedConversation', value: {} },
       { selector: 'getLoadingContent', value: false },
@@ -94,7 +102,11 @@ describe('MessagesContentComponent', () => {
           { provide: ModalService, useValue: modalService },
           { provide: ActivatedRoute, useValue: activatedRoute },
           { provide: PerformanceService, useValue: performanceService },
-          { provide: AuthService, useValue: { has: sinon.stub() } },
+          { provide: AuthService, useValue: { has: sinon.stub().resolves(true) } },
+          { provide: DataMessagingHistoryService, useValue: dataHistory },
+          { provide: DataMessagingConversationsService, useValue: dataConversations },
+          { provide: DataMessagingService, useValue: {} },
+          { provide: DataMessagingStoreService, useValue: {} },
         ]
       })
       .compileComponents()
@@ -140,6 +152,52 @@ describe('MessagesContentComponent', () => {
     fixture.debugElement.query(By.css('[data-id="third"] button')).nativeElement.click();
     expect(copy.calledOnceWithExactly(text)).to.equal(true);
   });
+
+  it('opens data routes by full account ID, marks incoming messages read and shows reassignment', fakeAsync(() => {
+    const id = 'org.couchdb.user:supervisor';
+    const ownId = 'org.couchdb.user:Sarah';
+    const incoming = { _id: 'data-message:first', type: 'data_message', text: 'Hello', sender_id: id };
+    const outgoing = { _id: 'data-message:second', type: 'data_message', text: 'Reply', sender_id: ownId };
+    const thread = { id, type: 'data', name: 'Supervisor', recipient: { account_id: id }, messages: [
+      { id: incoming._id, doc: incoming, outgoing: false, read: false },
+      { id: outgoing._id, doc: outgoing, outgoing: true, read: true },
+    ] };
+    dataConversations.getConversations.resolves([thread]);
+    const setSelected = sinon.spy(MessagesActions.prototype, 'setSelectedConversation');
+
+    activatedRouteParams.next({ type_id: 'data:' + id });
+    tick();
+    expect(setSelected.lastCall.args[0]).to.equal(thread);
+    expect(markReadService.markAsRead.firstCall.args[0]).to.deep.equal([incoming]);
+    expect(messageContactService.getConversation.called).to.be.false;
+    expect(changesFilter({ deleted: true })).to.be.false;
+    component.selectedConversation = thread;
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.incoming [test-id="data-message-content"]').textContent)
+      .to.equal('Hello');
+    expect(fixture.nativeElement.querySelector('.outgoing [test-id="data-message-content"]').textContent)
+      .to.equal('Reply');
+    expect(fixture.nativeElement.querySelector('#data-message-draft').disabled).to.be.false;
+
+    const downloaded = { ...incoming, _id: 'data-message:third', text: 'Another message' };
+    const archived = { ...thread, name: id, recipient: undefined, messages: [
+      { ...thread.messages[0], read: true }, thread.messages[1],
+      { id: downloaded._id, doc: downloaded, outgoing: false, read: false },
+    ] };
+    dataConversations.getConversations.resolves([archived]);
+    dataHistory.changes.next();
+    tick(100);
+    expect(setSelected.lastCall.args[0]).to.equal(archived);
+    component.selectedConversation = archived;
+    fixture.detectChanges();
+    tick();
+    expect(fixture.nativeElement.querySelector('#message-header').textContent).to.include(id);
+    expect(fixture.nativeElement.querySelector('#data-message-draft').disabled).to.be.true;
+    expect(fixture.nativeElement.querySelector('[data-id="data-message:third"]').textContent)
+      .to.include('Another message');
+    expect(markReadService.markAsRead.callCount).to.equal(2);
+    expect(markReadService.markAsRead.lastCall.args[0]).to.deep.equal([downloaded]);
+  }));
 
   it('ngOnDestroy() should unsubscribe from observables', () => {
     const spySubscriptionsUnsubscribe = sinon.spy(component.subscriptions, 'unsubscribe');

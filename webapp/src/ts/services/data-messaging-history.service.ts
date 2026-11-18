@@ -101,7 +101,8 @@ export class DataMessagingHistoryService {
           history.messages.set(message._id, { ...message, type: DOC_TYPES.DATA_MESSAGE });
         }
         const directory = page.directory ?? history.directory;
-        changed ||= page.messages.length > 0 || JSON.stringify(history.directory) !== JSON.stringify(directory);
+        changed ||= !history.since || page.messages.length > 0 ||
+          JSON.stringify(history.directory) !== JSON.stringify(directory);
         history.directory = directory;
         history.since = page.next_since;
         hasMore = page.has_more;

@@ -1,6 +1,7 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
-import { find as _find, isEqual as _isEqual } from 'lodash-es';
-import { combineLatest, Subscription } from 'rxjs';
+import { Component, NgZone, OnDestroy, OnInit } from '@angular/core';
+import { find as _find, isEqual as _isEqual, last as _last } from 'lodash-es';
+import { combineLatest, debounceTime, fromEvent, merge, Subscription, timer } from 'rxjs';
+import { DOC_TYPES } from '@medic/constants';
 import { Store } from '@ngrx/store';
 import { Router, RouterLink, RouterOutlet } from '@angular/router';
 
@@ -23,6 +24,14 @@ import { NgClass, NgFor, NgIf } from '@angular/common';
 import { TranslatePipe } from '@ngx-translate/core';
 import { LineagePipe } from '@mm-pipes/message.pipe';
 import { RelativeDatePipe } from '@mm-pipes/date.pipe';
+import {
+  DATA_CONVERSATION,
+  DataMessagingConversationsService,
+} from '@mm-services/data-messaging-conversations.service';
+import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
+import { SessionService } from '@mm-services/session.service';
+
+const DASHBOARD_REFRESH_INTERVAL = 30_000;
 
 @Component({
   templateUrl: './messages.component.html',
@@ -45,7 +54,10 @@ export class MessagesComponent implements OnInit, OnDestroy {
   private readonly globalActions: GlobalActions;
   private readonly messagesActions: MessagesActions;
   private destroyed = false;
+  private dataConversations: Record<string, any>[] = [];
+  private dataRequest = 0;
   readonly buttonType = ButtonType;
+  readonly dataConversationType = DATA_CONVERSATION;
 
   subscriptions: Subscription = new Subscription();
   fastActionList?: FastAction[];
@@ -53,6 +65,7 @@ export class MessagesComponent implements OnInit, OnDestroy {
   loadingContent = false;
   conversations: Record<string, any>[] = [];
   error = false;
+  dataError = false;
   trackPerformance;
 
   constructor(
@@ -65,6 +78,10 @@ export class MessagesComponent implements OnInit, OnDestroy {
     private readonly modalService: ModalService,
     private readonly responsiveService: ResponsiveService,
     private readonly performanceService: PerformanceService,
+    private readonly dataHistory: DataMessagingHistoryService,
+    private readonly dataMessagingConversations: DataMessagingConversationsService,
+    private readonly ngZone: NgZone,
+    private readonly sessionService: SessionService,
   ) {
     this.globalActions = new GlobalActions(store);
     this.messagesActions = new MessagesActions(store);
@@ -75,6 +92,8 @@ export class MessagesComponent implements OnInit, OnDestroy {
     this.subscribeToStore();
     this.updateConversations().then(() => this.displayFirstConversation(this.conversations));
     this.watchForChanges();
+    this.watchDataConversations();
+    void this.updateDataConversations();
   }
 
   ngOnDestroy(): void {
@@ -106,7 +125,9 @@ export class MessagesComponent implements OnInit, OnDestroy {
     ]) => {
       // Make new reference because the one from store is read-only. Fixes: ExpressionChangedAfterItHasBeenCheckedError
       this.conversations = conversations.map(conversation => {
-        return { ...conversation, selected: conversation.key === selectedConversation?.id };
+        const sameChannel = (conversation.type === DATA_CONVERSATION) ===
+          (selectedConversation?.type === DATA_CONVERSATION);
+        return { ...conversation, selected: sameChannel && conversation.key === selectedConversation?.id };
       });
     });
     this.subscriptions.add(conversations$);
@@ -135,6 +156,58 @@ export class MessagesComponent implements OnInit, OnDestroy {
     this.subscriptions.add(subscription);
   }
 
+  private watchDataConversations() {
+    this.subscriptions.add(this.dataHistory.changes.pipe(debounceTime(100)).subscribe(() => {
+      void this.updateDataConversations();
+    }));
+    this.subscriptions.add(this.changesService.subscribe({
+      metaDb: true,
+      key: 'messages-data-read',
+      filter: change => change.id?.startsWith(`read:${DOC_TYPES.DATA_MESSAGE}:`),
+      callback: () => void this.updateDataConversations(),
+    }));
+    if (!this.sessionService.isOnlineOnly()) {
+      return;
+    }
+    this.ngZone.runOutsideAngular(() => {
+      this.subscriptions.add(merge(timer(0, DASHBOARD_REFRESH_INTERVAL), fromEvent(window, 'online')).subscribe(() => {
+        this.ngZone.run(() => void this.dataHistory.refreshOnline().catch(() => {}));
+      }));
+    });
+  }
+
+  private async updateDataConversations() {
+    const request = ++this.dataRequest;
+    try {
+      const threads = await this.dataMessagingConversations.getConversations();
+      if (this.destroyed || request !== this.dataRequest) {
+        return;
+      }
+      this.dataError = false;
+      this.dataConversations = threads.map(thread => {
+        const last = _last(thread.messages)!;
+        return {
+          key: thread.id,
+          type: thread.type,
+          contact: thread.name,
+          message: last.doc.text,
+          date: last.doc.created_at,
+          read: thread.messages.every(message => message.read),
+          description: [thread.recipient?.role_label, thread.recipient?.place_label].filter(Boolean).join(' · '),
+        };
+      });
+      const sms = this.conversations.filter(conversation => conversation.type !== DATA_CONVERSATION);
+      this.messagesActions.setConversations([...sms, ...this.dataConversations]);
+      if (!this.loading) {
+        this.displayFirstConversation(this.conversations);
+      }
+    } catch {
+      if (!this.destroyed && request === this.dataRequest) {
+        this.dataError = true;
+      }
+    }
+  }
+
   private async updateFastActions() {
     if (this.destroyed) {
       // Don't update the fast actions, if the component has already been destroyed
@@ -149,11 +222,13 @@ export class MessagesComponent implements OnInit, OnDestroy {
 
   private setConversations(conversations: Record<string, any>[] = [], {merge = false} = {}) {
     if (merge) {
-      this.removeDeleted(this.conversations, conversations);
-      this.mergeUpdated(this.conversations, conversations);
+      const sms = this.conversations.filter(conversation => conversation.type !== DATA_CONVERSATION);
+      this.removeDeleted(sms, conversations);
+      this.mergeUpdated(sms, conversations);
+      this.conversations = [...sms, ...this.dataConversations];
     }
 
-    this.messagesActions.setConversations(conversations);
+    this.messagesActions.setConversations([...conversations, ...this.dataConversations]);
     this.updateFastActions();
     this.recordPerformance();
   }
@@ -205,6 +280,9 @@ export class MessagesComponent implements OnInit, OnDestroy {
   }
 
   listTrackBy(index, message) {
+    if (message.type === DATA_CONVERSATION) {
+      return `${DATA_CONVERSATION}:${message.key}`;
+    }
     const identifier = message.doc ? message.doc._id + message.doc._rev : message.id;
     return message.key + identifier;
   }

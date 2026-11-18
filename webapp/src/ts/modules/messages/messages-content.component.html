@@ -12,19 +12,28 @@
     <div class="body">
 
       <div id="message-header" class="name-header">
-        <mm-sender [message]="selectedConversation.contact"></mm-sender>
+        @if (selectedConversation.type === dataConversationType) {
+          <strong>{{ selectedConversation.name }}</strong>
+          @if (selectedConversation.recipient; as recipient) {
+            <div>{{ recipient.role_label }}{{ recipient.role_label && recipient.place_label ? ' · ' : '' }}{{ recipient.place_label }}</div>
+          }
+        } @else {
+          <mm-sender [message]="selectedConversation.contact"></mm-sender>
+        }
       </div>
 
       <div id="message-content">
         <div class="loader" *ngIf="loadingMoreContent"></div>
-        <p class="loading-status" *ngIf="allLoaded">{{'No more messages' | translate}}</p>
+        <p class="loading-status" *ngIf="allLoaded && selectedConversation.type !== dataConversationType">
+          {{'No more messages' | translate}}
+        </p>
         <div>
           <ul>
             <li *ngFor="let message of selectedConversation.messages; trackBy: listTrackBy; let lastMessage = last"
-              [ngClass]="{'outgoing': message.doc?.kujua_message, 'incoming': !message.doc?.kujua_message}"
+              [ngClass]="(message.doc?.type === dataMessageType ? message.outgoing : message.doc?.kujua_message) ? 'outgoing' : 'incoming'"
               [attr.data-id]="message.doc?._id">
 
-              <div class="marker" *ngIf="firstUnread && firstUnread.id === message.doc?._id">{{'Unread below' | translate}}</div>
+              <div class="marker" *ngIf="firstUnread && firstUnread.id === message.id">{{'Unread below' | translate}}</div>
               <span class="message-body" [class.last-message]="lastMessage">
                 <div class="data">
                   <ng-container *ngIf="message.doc?.type === dataMessageType; else smsMessage">
@@ -67,8 +76,13 @@
         </div>
       </div>
 
-      <mm-data-message-composer *ngIf="selectedConversation.dataRecipientId as recipientId"
-                                [recipientId]="recipientId"></mm-data-message-composer>
+      @if (selectedConversation.type === dataConversationType) {
+        @if (!selectedConversation.recipient) {
+          <p class="alert alert-info" role="status">{{ 'messages.data.reply_unavailable' | translate }}</p>
+        }
+        <mm-data-message-composer class="reply" mmAuth="can_edit" [recipientId]="selectedConversation.id"
+                                  [disabled]="!selectedConversation.recipient"></mm-data-message-composer>
+      }
 
       <div
         *ngIf="selectedConversation.messages[0]?.doc?.type !== dataMessageType"

@@ -36,7 +36,7 @@ describe('DataMessagingConversationsService', () => {
   afterEach(() => sinon.restore());
 
   it('groups both directions by peer, sorts by time and ID, and reads markers for incoming messages', async () => {
-    const [thread] = await service.getConversations();
+    const [, thread] = await service.getConversations();
     expect(thread).to.include({ id: peer, name: 'Supervisor', type: 'data', recipient: directory[0] });
     expect(thread.messages.map(({ id, outgoing, read }) => [id, outgoing, read])).to.deep.equal([
       ['local-z', false, false],
@@ -52,8 +52,8 @@ describe('DataMessagingConversationsService', () => {
 
   it('keeps history for a departed recipient and excludes unrelated messages', async () => {
     const threads = await service.getConversations();
-    expect(threads.map(({ id }) => id)).to.deep.equal([peer, departed]);
-    expect(threads[1]).to.include({ name: departed, recipient: undefined });
-    expect(threads[1].messages[0].doc.text).to.equal('departed');
+    expect(threads.map(({ id }) => id)).to.deep.equal([departed, peer]);
+    expect(threads[0]).to.include({ name: departed, recipient: undefined });
+    expect(threads[0].messages[0].doc.text).to.equal('departed');
   });
 });

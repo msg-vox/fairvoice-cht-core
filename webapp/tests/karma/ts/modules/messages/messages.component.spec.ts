@@ -1,12 +1,14 @@
-import { ComponentFixture, TestBed, waitForAsync } from '@angular/core/testing';
+import { ComponentFixture, fakeAsync, TestBed, tick, waitForAsync } from '@angular/core/testing';
 import { MatIconModule } from '@angular/material/icon';
 import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { MatDialog } from '@angular/material/dialog';
 import { provideMockStore } from '@ngrx/store/testing';
 import { RouterTestingModule } from '@angular/router/testing';
+import { Router } from '@angular/router';
 import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
 import { expect } from 'chai';
 import sinon from 'sinon';
+import { Subject } from 'rxjs';
 
 import { MessagesComponent } from '@mm-modules/messages/messages.component';
 import { ChangesService } from '@mm-services/changes.service';
@@ -25,6 +27,11 @@ import { ToolBarComponent } from '@mm-components/tool-bar/tool-bar.component';
 import { PerformanceService } from '@mm-services/performance.service';
 import { ExportService } from '@mm-services/export.service';
 import { AuthService } from '@mm-services/auth.service';
+import { MessagesActions } from '@mm-actions/messages';
+import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
+import { DataMessagingConversationsService } from '@mm-services/data-messaging-conversations.service';
+import { LanguagesService } from '@mm-services/languages.service';
+import { LanguageService, SetLanguageService } from '@mm-services/language.service';
 
 describe('Messages Component', () => {
   let component: MessagesComponent;
@@ -37,11 +44,15 @@ describe('Messages Component', () => {
   let sessionService;
   let performanceService;
   let stopPerformanceTrackStub;
+  let dataHistory;
+  let dataConversations;
 
   beforeEach(waitForAsync(() => {
     stopPerformanceTrackStub = sinon.stub();
     performanceService = { track: sinon.stub().returns({ stop: stopPerformanceTrackStub }) };
     modalService = { show: sinon.stub() };
+    dataHistory = { changes: new Subject(), refreshOnline: sinon.stub().resolves() };
+    dataConversations = { getConversations: sinon.stub().resolves([]) };
     messageContactService = {
       getList: sinon.stub().resolves([]),
       isRelevantChange: sinon.stub()
@@ -56,7 +67,7 @@ describe('Messages Component', () => {
       any: sinon.stub(),
       has: sinon.stub()
     };
-    sessionService = { isAdmin: sinon.stub() };
+    sessionService = { isAdmin: sinon.stub(), isOnlineOnly: sinon.stub().returns(false) };
     const mockedSelectors = [
       { selector: 'getSelectedConversation', value: {} },
       { selector: 'getLoadingContent', value: false },
@@ -88,6 +99,11 @@ describe('Messages Component', () => {
           { provide: AuthService, useValue: authService },
           { provide: FastActionButtonService, useValue: fastActionButtonService },
           { provide: PerformanceService, useValue: performanceService },
+          { provide: DataMessagingHistoryService, useValue: dataHistory },
+          { provide: DataMessagingConversationsService, useValue: dataConversations },
+          { provide: LanguagesService, useValue: { get: sinon.stub().resolves([]) } },
+          { provide: LanguageService, useValue: { get: sinon.stub().resolves('en') } },
+          { provide: SetLanguageService, useValue: {} },
           { provide: MatBottomSheet, useValue: { open: sinon.stub() } },
           { provide: MatDialog, useValue: { open: sinon.stub() } },
         ]
@@ -116,8 +132,8 @@ describe('Messages Component', () => {
     component.ngOnInit();
 
     expect(spyUpdateConversations.callCount).to.equal(1);
-    expect(changesService.subscribe.callCount).to.equal(1);
-    expect(spySubscriptionsAdd.callCount).to.equal(3);
+    expect(changesService.subscribe.callCount).to.equal(2);
+    expect(spySubscriptionsAdd.callCount).to.equal(5);
     expect(performanceService.track.calledTwice).to.be.true;
     expect(stopPerformanceTrackStub.calledOnce).to.be.true;
     expect(stopPerformanceTrackStub.args[0][0]).to.deep.equal({ name: 'message_list:load', recordApdex: true });
@@ -133,6 +149,33 @@ describe('Messages Component', () => {
     expect(resultWithDoc).to.equal('134xyz567');
     expect(resultNoDoc).to.equal('134abc');
   });
+
+  it('refreshes data previews and unread state alongside SMS without sharing thread keys', fakeAsync(() => {
+    sinon.stub(TestBed.inject(Router), 'navigate').resolves(true);
+    const id = 'org.couchdb.user:peer';
+    const sms = { key: id, type: 'contact', message: 'SMS', read: true, date: 1 };
+    component.conversations = [sms];
+    const incoming = { read: false, doc: { created_at: 2, text: 'Incoming' } };
+    const outgoing = { read: true, doc: { created_at: 3, text: 'Reply' } };
+    const thread = { id, type: 'data', name: 'Peer', messages: [incoming, outgoing] };
+    const setConversations = sinon.spy(MessagesActions.prototype, 'setConversations');
+    dataConversations.getConversations.resolves([thread]);
+
+    dataHistory.changes.next();
+    tick(100);
+    const [smsRow, dataRow] = setConversations.lastCall.args[0];
+    expect(smsRow).to.equal(sms);
+    expect(dataRow).to.include({ key: id, type: 'data', message: 'Reply', date: 3, read: false });
+    expect(component.listTrackBy(0, dataRow)).not.to.equal(component.listTrackBy(0, smsRow));
+
+    incoming.read = true;
+    const { filter, callback } = changesService.subscribe.secondCall.args[0];
+    expect(filter({ id: 'read:message:message-id' })).to.be.false;
+    expect(filter({ id: 'read:data_message:data-message:1' })).to.be.true;
+    callback();
+    tick();
+    expect(setConversations.lastCall.args[0][1].read).to.be.true;
+  }));
 
   it('ngOnDestroy() should unsubscribe from observables', () => {
     const spySubscriptionsUnsubscribe = sinon.spy(component.subscriptions, 'unsubscribe');

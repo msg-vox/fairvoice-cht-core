@@ -8,9 +8,9 @@ import {
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { ClipboardModule } from '@angular/cdk/clipboard';
-import { combineLatest, Subscription, take } from 'rxjs';
+import { combineLatest, debounceTime, Subscription, take } from 'rxjs';
 import { select, Store } from '@ngrx/store';
-import { minBy as _minBy } from 'lodash-es';
+import { last as _last, minBy as _minBy } from 'lodash-es';
 import { DOC_TYPES } from '@medic/constants';
 
 import { GlobalActions } from '@mm-actions/global';
@@ -32,13 +32,19 @@ import { FormsModule } from '@angular/forms';
 import { TranslatePipe } from '@ngx-translate/core';
 import { AutoreplyPipe, StatePipe } from '@mm-pipes/date.pipe';
 import { DataMessageComposerComponent } from './data-message-composer.component';
+import {
+  DATA_CONVERSATION,
+  DataMessagingConversationsService,
+} from '@mm-services/data-messaging-conversations.service';
+import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
 
 /**
 *  In this context the URL parameter "id", can be:
 *    - the _id of the contact who is sending these messages
 *    - the phone number if it couldn't be resolved into a contact
 *    - the _id of the data_record if there is no discernible phone number
-*  This is determined by the URL parameter "type": 'contact', 'phone' or 'unknown' respectively.
+*    - the peer's full user account ID for a data conversation
+*  This is determined by the URL parameter "type": 'contact', 'phone', 'unknown' or 'data' respectively.
 */
 @Component({
   selector: 'messages-content',
@@ -60,6 +66,7 @@ import { DataMessageComposerComponent } from './data-message-composer.component'
 })
 export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewInit, AfterViewChecked {
   readonly dataMessageType = DOC_TYPES.DATA_MESSAGE;
+  readonly dataConversationType = DATA_CONVERSATION;
   private userCtx;
   private globalActions!: GlobalActions;
   private messagesActions!: MessagesActions;
@@ -77,6 +84,7 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
   private urlParameters = { type: '', id: '' };
   private hasToScroll = false;
   private checkScrollFnDef;
+  private dataRequest = 0;
 
   constructor(
     private changeDetectorRef: ChangeDetectorRef,
@@ -91,6 +99,8 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
     private modalService: ModalService,
     private performanceService: PerformanceService,
     private ngZone:NgZone,
+    private dataHistory: DataMessagingHistoryService,
+    private dataConversations: DataMessagingConversationsService,
   ) { }
 
   ngOnInit(): void {
@@ -108,17 +118,35 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
     this.messagesActions = new MessagesActions(this.store);
     this.userCtx = this.sessionService.userCtx();
     this.watchForChanges();
+    this.subscriptions.add(this.dataHistory.changes.pipe(debounceTime(100)).subscribe(() => {
+      if (this.urlParameters.type === DATA_CONVERSATION) {
+        void this.refreshDataConversation(this.urlParameters.id);
+      }
+    }));
   }
 
   ngAfterViewInit(): void {
     const routeSubscription = this.route.params.subscribe((params) => {
-      const [type, id] = params.type_id ? params.type_id.split(':') : [];
+      const path = params.type_id || '';
+      const separator = path.indexOf(':');
+      const type = separator < 0 ? '' : path.slice(0, separator);
+      const id = separator < 0 ? '' : path.slice(separator + 1);
       this.urlParameters.type = type;
       this.urlParameters.id = id;
+      this.dataRequest++;
       this.send.message = '';
+      this.firstUnread = null;
       this.hasToScroll = false;
       this.allLoaded = false;
-      this.selectContact(this.urlParameters.id, this.urlParameters.type);
+      this.loadingMoreContent = false;
+      if (type === DATA_CONVERSATION && id) {
+        $('.message-content-wrapper').off('scroll', this.checkScrollFnDef);
+        this.messagesActions.setSelected({ id, type, messages: [] }, false);
+        this.globalActions.setLoadingShowContent(id);
+        void this.refreshDataConversation(id, true);
+      } else {
+        this.selectContact(id, type);
+      }
       this.changeDetectorRef.detectChanges();
     });
     this.subscriptions.add(routeSubscription);
@@ -148,13 +176,53 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   ngOnDestroy(): void {
+    this.dataRequest++;
     this.subscriptions.unsubscribe();
     $('body').off('focus', '#message-footer textarea');
     $('body').off('blur', '#message-footer textarea');
   }
 
   listTrackBy(index, message) {
+    if (message.doc?.type === DOC_TYPES.DATA_MESSAGE) {
+      return message.id || message.doc._id;
+    }
     return message.doc ? message.doc._id + message.doc._rev : message.id;
+  }
+
+  private async refreshDataConversation(id: string, opening = false) {
+    const request = ++this.dataRequest;
+    try {
+      const threads = await this.dataConversations.getConversations();
+      if (request !== this.dataRequest) {
+        return;
+      }
+      const thread = threads.find(thread => thread.id === id);
+      const messages = thread?.messages || [];
+      const unread = messages.filter(message => !message.read);
+      const previous: { id: string; doc: { _id: string } }[] = this.selectedConversation?.messages || [];
+      const newUnread = unread.find(message => !previous.some(existing => existing.id === message.id));
+      if (opening || newUnread || _last(messages)?.doc._id !== _last(previous)?.doc?._id) {
+        this.firstUnread = newUnread || unread[0];
+        this.hasToScroll = true;
+      }
+      this.allLoaded = true;
+      this.messagesActions.setSelectedConversation(thread || { id, type: DATA_CONVERSATION, messages });
+      this.globalActions.setTitle(thread?.name || id);
+      this.globalActions.setLoadingContent(false);
+      this.messagesActions.setMessagesError(false);
+      if (opening) {
+        this.trackPerformance?.stop({ name: 'messages_detail:load', recordApdex: true });
+      }
+      if (unread.length) {
+        this.markReadService.markAsRead(unread.map(message => message.doc))
+          .catch(() => console.error('Error marking data messages as read'));
+      }
+    } catch {
+      if (request === this.dataRequest) {
+        this.globalActions.setLoadingContent(false);
+        this.messagesActions.setMessagesError(true);
+      }
+    }
   }
 
   private checkScroll(elem) {
@@ -255,7 +323,8 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
           };
         }
 
-        if (this.selectedConversation && this.selectedConversation.id !== id) {
+        if (this.urlParameters.type === DATA_CONVERSATION ||
+            (this.selectedConversation && this.selectedConversation.id !== id)) {
           // ignore response for previous request
           return;
         }
@@ -271,6 +340,9 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
         this.trackPerformance?.stop({ name: 'messages_detail:load', recordApdex: true });
       })
       .catch((err) => {
+        if (this.urlParameters.type === DATA_CONVERSATION) {
+          return;
+        }
         this.globalActions.setLoadingContent(false);
         this.messagesActions.setMessagesError(true);
         console.error('Error fetching contact conversation', err);
@@ -280,7 +352,7 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
   private updateConversation(options: any = {}) {
     const selectedId = this.selectedConversation && this.selectedConversation.id;
 
-    if (!selectedId) {
+    if (!selectedId || this.urlParameters.type === DATA_CONVERSATION) {
       return;
     }
 
@@ -299,6 +371,9 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
       .getConversation(selectedId, skip, limit)
       .then((conversation) => {
         this.loadingMoreContent = false;
+        if (this.urlParameters.type === DATA_CONVERSATION || this.selectedConversation?.id !== selectedId) {
+          return;
+        }
 
         const newMessageFromUser = conversation.find(message => (
           message.doc.sent_by === this.userCtx.name &&
@@ -338,7 +413,8 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
     const subscription = this.changesService.subscribe({
       key: 'messages-content',
       callback: change => this.updateConversation({ change }),
-      filter: change => this.messageContactService.isRelevantChange(change, this.selectedConversation),
+      filter: change => this.urlParameters.type !== DATA_CONVERSATION &&
+        this.messageContactService.isRelevantChange(change, this.selectedConversation),
     });
     this.subscriptions.add(subscription);
   }

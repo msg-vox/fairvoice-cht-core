@@ -16,6 +16,7 @@ import { DataMessageDelivery, DataMessagingStoreService } from '@mm-services/dat
 })
 export class DataMessageComposerComponent {
   readonly recipientId = input.required<string>();
+  readonly disabled = input(false);
   readonly submitted = output<{ message: DataMessage; delivery: 'waiting' | 'sent' }>();
   draft = '';
   sending = false;
@@ -25,7 +26,7 @@ export class DataMessageComposerComponent {
   constructor(private messaging: DataMessagingService, private storage: DataMessagingStoreService) {}
 
   async submit(): Promise<void> {
-    if (this.sending) {
+    if (this.sending || this.disabled()) {
       return;
     }
     if (!isValidDataMessageText(this.draft)) {

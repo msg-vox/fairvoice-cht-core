@@ -11,7 +11,7 @@
         <ul *ngIf="!loading">
           <li class="content-row"
             *ngFor="let msg of conversations; trackBy: listTrackBy"
-            [attr.test-id]="msg.key"
+            [attr.test-id]="msg.type === dataConversationType ? msg.type + ':' + msg.key : msg.key"
             [ngClass]="{
               'unread': !msg.read,
               'selected': msg.selected
@@ -24,13 +24,17 @@
                   <div class="date"><span [innerHTML]="msg.date | relativeDate"></span></div>
                 </div>
                 <div class="summary"><p>{{ msg.message }}</p></div>
-                <div class="detail" *ngIf="msg.lineage && msg.lineage.length" [innerHTML]="msg.lineage | lineage"></div>
+                <div class="detail" *ngIf="msg.type === dataConversationType">
+                  {{ 'messages.data.draft' | translate }}{{ msg.description ? ' · ' + msg.description : '' }}
+                </div>
+                <div class="detail" *ngIf="msg.lineage?.length" [innerHTML]="msg.lineage | lineage"></div>
               </div>
             </a>
           </li>
         </ul>
 
         <p *ngIf="error" class="alert alert-danger" role="alert">{{'Error fetching messages' | translate}}</p>
+        <p *ngIf="dataError" class="alert alert-danger" role="alert">{{ 'messages.data.history_error' | translate }}</p>
         <p class="loading-status" *ngIf="!error && !loading && !conversations.length">{{'No messages found' | translate}}</p>
         <p class="loading-status" *ngIf="!error && !loading && conversations.length">{{'message.list.complete' | translate}}</p>
         <div class="loader" *ngIf="loading"></div>

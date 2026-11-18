@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { last as _last } from 'lodash-es';
 
 import { AddReadStatusService } from '@mm-services/add-read-status.service';
 import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
@@ -65,7 +66,9 @@ export class DataMessagingConversationsService {
       }
       thread.messages.push(message);
     }
-    return Array.from(threads.values(), thread => ({ ...thread, messages: thread.messages.sort(compareMessages) }));
+    const conversations = [...threads.values()];
+    conversations.forEach(thread => thread.messages.sort(compareMessages));
+    return conversations.sort((a, b) => compareMessages(_last(b.messages)!, _last(a.messages)!));
   }
 
   async getUnreadCount(): Promise<number> {

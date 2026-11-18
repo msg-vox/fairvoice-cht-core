@@ -2,9 +2,12 @@
   <div class="form-group">
     <label for="data-message-draft" class="sr-only">{{ 'messages.data.draft' | translate }}</label>
     <textarea id="data-message-draft" class="form-control" name="draft"
-              [(ngModel)]="draft" [readonly]="sending" (ngModelChange)="feedback = undefined"></textarea>
+              [(ngModel)]="draft" [disabled]="disabled()" [readonly]="sending"
+              (ngModelChange)="feedback = undefined"></textarea>
   </div>
-  <button class="btn btn-primary" type="submit" [disabled]="sending || !draft.trim()">{{ 'Send' | translate }}</button>
+  <button class="btn btn-primary" type="submit" [disabled]="disabled() || sending || !draft.trim()">
+    {{ 'Send' | translate }}
+  </button>
   @if (feedback === 'waiting' || feedback === 'sent') {
     <p role="status">{{ ('messages.data.delivery.' + feedback) | translate }}</p>
   } @else if (feedback) {
