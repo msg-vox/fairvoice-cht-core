@@ -791,6 +791,7 @@ app.putJson('/api/v1/settings', settings.put);
 app.get('/api/couch-config-attachments', couchConfigController.getAttachments);
 
 app.get('/api/v1/data-messaging/sync', authorization.handleAuthErrors, dataMessaging.sync);
+app.post('/api/v1/data-messaging/messages', authorization.handleAuthErrors, jsonParser, dataMessaging.send);
 
 app.put(
   '/api/v1/credentials/:key',

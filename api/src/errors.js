@@ -41,6 +41,13 @@ class BadRequestError extends Error {
   }
 }
 
+class ConflictError extends Error {
+  constructor(message, ...args) {
+    super(message, ...args);
+    this.code = 409;
+  }
+}
+
 class PayloadTooLargeError extends Error {
   constructor(message, ...args) {
     super(message, ...args);
@@ -56,5 +63,6 @@ module.exports = {
   AuthenticationError,
   ContentTypeError,
   BadRequestError,
+  ConflictError,
   PayloadTooLargeError,
 };

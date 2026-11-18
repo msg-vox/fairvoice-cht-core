@@ -26,7 +26,8 @@ const DOC_TYPES = {
   TOKEN_LOGIN: 'token_login',
   TRANSLATIONS: 'translations',
   DATA_RECORD: 'data_record',
-  UI_EXTENSION: 'ui-extension'
+  UI_EXTENSION: 'ui-extension',
+  DATA_MESSAGE: 'data_message',
 };
 
 // HTTP Headers
@@ -63,6 +64,7 @@ const DB_ADMIN_ROLES = [USER_ROLES.ADMIN, USER_ROLES.COUCHDB_ADMIN];
 
 // Maximum HTTP request body size in bytes, shared by the api body parsers and streaming routes.
 const MAX_REQUEST_SIZE = 32 * 1024 * 1024;
+const DATA_MESSAGE_TEXT_LIMIT = 4000;
 
 // Name of the attachment on archive job docs carrying the newline-separated doc ids.
 const ARCHIVE_IDS_ATTACHMENT = 'ids';
@@ -74,6 +76,7 @@ const PREFIXES = {
   FORM: 'form:',
   UI_EXTENSION: `${DOC_TYPES.UI_EXTENSION}:`,
   ARCHIVE_JOB: 'archive:',
+  DATA_MESSAGE: 'data-message:',
 };
 
 module.exports = {
@@ -87,5 +90,6 @@ module.exports = {
   STANDARD_HTTP_HEADERS,
   PREFIXES,
   MAX_REQUEST_SIZE,
+  DATA_MESSAGE_TEXT_LIMIT,
   ARCHIVE_IDS_ATTACHMENT,
 };

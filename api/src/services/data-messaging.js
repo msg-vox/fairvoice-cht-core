@@ -1,17 +1,18 @@
 const auth = require('../auth');
 const config = require('../config');
 const db = require('../db');
+const { BadRequestError, ConflictError, PermissionError } = require('../errors');
 const dataContext = require('./data-context');
 const { Place, Qualifier } = require('@medic/cht-datasource');
-const { PREFIXES } = require('@medic/constants');
+const { DATA_MESSAGE_TEXT_LIMIT, DOC_TYPES, PREFIXES } = require('@medic/constants');
 const { getContactType, isParentOf } = require('@medic/contact-types-utils');
+const { validate: isUuid } = require('uuid');
 const { users } = require('@medic/user-management')(config, db, dataContext);
 
-const MESSAGE_TYPE = 'data_message';
-const MESSAGE_PREFIX = 'data-message:';
 const DIRECTORY_TYPE = 'data_message_directory';
 const DIRECTORY_PREFIX = 'data-message-directory:';
 const SYNC_PAGE_SIZE = 100;
+const MESSAGE_FIELDS = ['_id', 'type', 'sender_id', 'recipient_id', 'text', 'created_at'];
 
 const getConfig = () => {
   const settings = config.get('data_messaging');
@@ -109,13 +110,68 @@ const createRecipientPolicy = () => {
   };
 };
 
-const getDirectory = async accountId => {
-  const id = DIRECTORY_PREFIX + accountId;
-  const doc = await db.dataMessaging.get(id).catch(err => {
+const validateMessage = message => {
+  const id = message?._id;
+  if (!message || Object.keys(message).length !== MESSAGE_FIELDS.length ||
+      !MESSAGE_FIELDS.every(field => Object.hasOwn(message, field)) ||
+      typeof id !== 'string' || !id.startsWith(PREFIXES.DATA_MESSAGE) ||
+      id !== id.toLowerCase() || !isUuid(id.slice(PREFIXES.DATA_MESSAGE.length)) ||
+      message.type !== DOC_TYPES.DATA_MESSAGE ||
+      !getUsername(message.sender_id)?.trim() || !getUsername(message.recipient_id)?.trim() ||
+      !Number.isFinite(message.created_at) ||
+      typeof message.text !== 'string' || message.text.length > DATA_MESSAGE_TEXT_LIMIT * 2 || !message.text.trim() ||
+      Array.from(message.text).length > DATA_MESSAGE_TEXT_LIMIT) {
+    throw new BadRequestError('Invalid data message');
+  }
+};
+
+const getMessagingDoc = async id => {
+  try {
+    return await db.dataMessaging.get(id);
+  } catch (err) {
     if (err.status !== 404) {
       throw err;
     }
-  });
+  }
+};
+
+const acknowledgeRetry = (stored, message) => {
+  if (!stored || !MESSAGE_FIELDS.every(field => stored[field] === message[field])) {
+    throw new ConflictError('Data message ID already in use');
+  }
+  return false;
+};
+
+const canMessage = (senderId, recipientId) => createRecipientPolicy()(senderId, recipientId);
+
+const send = async (accountId, message) => {
+  validateMessage(message);
+  if (message.sender_id !== accountId) {
+    throw new PermissionError('Data message sender must match the authenticated account');
+  }
+
+  const stored = await getMessagingDoc(message._id);
+  if (stored) {
+    return acknowledgeRetry(stored, message);
+  }
+  if (!await canMessage(accountId, message.recipient_id)) {
+    throw new PermissionError('Data message recipient is not currently eligible');
+  }
+
+  try {
+    await db.dataMessaging.put(message);
+    return true;
+  } catch (err) {
+    if (err.status !== 409) {
+      throw err;
+    }
+    return acknowledgeRetry(await getMessagingDoc(message._id), message);
+  }
+};
+
+const getDirectory = async accountId => {
+  const id = DIRECTORY_PREFIX + accountId;
+  const doc = await getMessagingDoc(id);
   if (doc?.type !== DIRECTORY_TYPE || doc.owner_id !== accountId || !Array.isArray(doc.entries)) {
     return null;
   }
@@ -126,7 +182,7 @@ const getDirectory = async accountId => {
 
 const getSyncPage = async (accountId, since) => {
   const selector = {
-    type: MESSAGE_TYPE,
+    type: DOC_TYPES.DATA_MESSAGE,
     $or: [{ sender_id: accountId }, { recipient_id: accountId }],
   };
   const [changes, directory] = await Promise.all([
@@ -140,7 +196,7 @@ const getSyncPage = async (accountId, since) => {
   ]);
   const messages = changes.results
     .map(change => change.doc)
-    .filter(doc => doc?.type === MESSAGE_TYPE && !doc._deleted && doc._id.startsWith(MESSAGE_PREFIX) &&
+    .filter(doc => doc?.type === DOC_TYPES.DATA_MESSAGE && !doc._deleted && doc._id.startsWith(PREFIXES.DATA_MESSAGE) &&
       (doc.sender_id === accountId || doc.recipient_id === accountId))
     .map(({ _id, sender_id, recipient_id, text, created_at }) => ({
       _id, sender_id, recipient_id, text, created_at,
@@ -157,13 +213,14 @@ const getSyncPage = async (accountId, since) => {
 module.exports = {
   getConfig,
   getSyncPage,
+  send,
 
   getAccount: async req => {
     const { name } = await auth.getUserCtx(req);
     return users.getMessagingAccount(name);
   },
 
-  canMessage: (senderId, recipientId) => createRecipientPolicy()(senderId, recipientId),
+  canMessage,
 
   getEligibleRecipientIds: async (senderId, candidateIds) => {
     const canMessage = createRecipientPolicy();

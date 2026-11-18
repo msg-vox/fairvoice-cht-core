@@ -172,5 +172,85 @@ describe('Data messaging contract', () => {
       assert.equal(await canMessage('site', 'pilot'), false);
       assert.equal(getAccount.callCount, 0);
     });
+
+    describe('send', () => {
+      const message = {
+        _id: 'data-message:01a1f048-0d7b-711f-af1d-36de5dda8242',
+        type: 'data_message',
+        sender_id: accountId('site'),
+        recipient_id: accountId('pilot'),
+        text: 'Hello',
+        created_at: 100,
+      };
+      let read;
+      let put;
+      const send = (doc = message, sender = message.sender_id) => dataMessaging.send(sender, doc);
+
+      beforeEach(() => {
+        read = sinon.stub(db.dataMessaging, 'get').rejects({ status: 404 });
+        put = sinon.stub(db.dataMessaging, 'put').resolves();
+      });
+
+      it('rejects malformed messages and forged senders before accessing storage', async () => {
+        const { text, ...withoutText } = message;
+        for (const doc of [
+          null,
+          { ...withoutText, tasks: [] },
+          { ...message, _id: 123 },
+          { ...message, _id: 'other:' + message._id },
+          { ...message, _id: message._id.replace('af1d', 'AF1D') },
+          { ...message, _id: 'data-message:invalid' },
+          { ...message, type: 'data_record' },
+          { ...message, sender_id: 'site' },
+          { ...message, recipient_id: 'pilot' },
+          { ...message, created_at: Infinity },
+          { ...message, text: 123 },
+          { ...message, text: ' \n\t' },
+          { ...message, text: text.repeat(2000) },
+          { ...message, text: text.repeat(801) },
+        ]) {
+          await assert.rejects(send(doc), { code: 400 });
+        }
+        await assert.rejects(send(message, accountId('unrelated')), { code: 403 });
+        assert.equal(read.callCount, 0);
+        assert.equal(put.callCount, 0);
+      });
+
+      it('validates eligibility for a new send and creates the document without modification', async () => {
+        await assert.rejects(send({ ...message, recipient_id: accountId('peer') }), { code: 403 });
+        assert.equal(await send(), true);
+        assert.deepEqual(put.args, [[message]]);
+      });
+
+      it('acknowledges a stored match with the pilot disabled and rejects changes', async () => {
+        read.resolves({ ...message, _rev: '1-test' });
+        getSettings.returns({ enabled: false });
+        assert.equal(await send(), false);
+        await assert.rejects(send({ ...message, created_at: 101 }), { code: 409 });
+        assert.equal(put.callCount, 0);
+      });
+
+      it('compares the canonical document again after a create conflict', async () => {
+        put.rejects({ status: 409 });
+        read.onSecondCall().resolves({ ...message, _rev: '1-test' });
+        assert.equal(await send(), false);
+
+        read.resetHistory();
+        read.onSecondCall().resolves({ ...message, text: 'Different' });
+        await assert.rejects(send(), { code: 409 });
+
+        read.resetHistory();
+        read.onSecondCall().rejects({ status: 404 });
+        await assert.rejects(send(), { code: 409 });
+      });
+
+      it('propagates storage errors so they can be retried', async () => {
+        read.onFirstCall().rejects({ status: 503 });
+        put.rejects({ status: 503 });
+        await assert.rejects(send(), { status: 503 });
+        assert.equal(put.callCount, 0);
+        await assert.rejects(send(), { status: 503 });
+      });
+    });
   });
 });

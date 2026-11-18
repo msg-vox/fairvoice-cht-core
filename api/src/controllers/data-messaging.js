@@ -3,6 +3,13 @@ const serverUtils = require('../server-utils');
 const dataMessaging = require('../services/data-messaging');
 
 module.exports = {
+  send: serverUtils.doOrError(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const accountId = PREFIXES.COUCH_USER + req.userCtx.name;
+    const created = await dataMessaging.send(accountId, req.body);
+    return res.status(created ? 201 : 200).json({ id: req.body._id });
+  }),
+
   sync: serverUtils.doOrError(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const { since = '0' } = req.query;
