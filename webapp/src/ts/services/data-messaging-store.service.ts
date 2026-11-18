@@ -1,6 +1,7 @@
 /* global PouchDB */
 import { Injectable } from '@angular/core';
 import { PREFIXES } from '@medic/constants';
+import { Subject } from 'rxjs';
 import { DataMessage, DataMessageRejection, DataMessagingService } from '@mm-services/data-messaging.service';
 import { DbService } from '@mm-services/db.service';
 import { SessionService } from '@mm-services/session.service';
@@ -112,6 +113,9 @@ export class DataMessagingLocalStore {
 
 @Injectable({ providedIn: 'root' })
 export class DataMessagingStoreService {
+  private readonly updates = new Subject<{ accountId: string; accepted?: DataMessage }>();
+  readonly changes = this.updates.asObservable();
+
   constructor(
     private session: SessionService,
     private dbService: DbService,
@@ -126,14 +130,21 @@ export class DataMessagingStoreService {
     return new DataMessagingLocalStore(this.dbService.getMessaging(), accountId);
   }
 
+  notifyChange(accountId: string): void {
+    this.updates.next({ accountId });
+  }
+
   async submit(message: DataMessage): Promise<DataMessageDelivery> {
     if (message.sender_id !== this.messaging.accountId()) {
       throw new Error('The message sender does not match the signed-in account');
     }
     if (this.session.isOnlineOnly()) {
       await this.messaging.send(message);
+      this.updates.next({ accountId: message.sender_id, accepted: message });
       return 'sent';
     }
-    return this.open().enqueue(message);
+    const delivery = await this.open().enqueue(message);
+    this.notifyChange(message.sender_id);
+    return delivery;
   }
 }

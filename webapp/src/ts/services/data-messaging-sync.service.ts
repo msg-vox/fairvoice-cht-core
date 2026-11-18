@@ -24,7 +24,10 @@ export class DataMessagingSyncService {
     if (running) {
       return running;
     }
-    const run = this.syncAccount(this.storage.open()).finally(() => this.inProgress.delete(accountId));
+    const run = this.syncAccount(this.storage.open()).finally(() => {
+      this.inProgress.delete(accountId);
+      this.storage.notifyChange(accountId);
+    });
     this.inProgress.set(accountId, run);
     return run;
   }

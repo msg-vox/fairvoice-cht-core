@@ -103,3 +103,8 @@ Online-only CHT requests can reach CouchDB views, changes, and other queries thr
 - With Chrome for Testing as `CHROME_BIN`, `npm --prefix webapp run unit -- --watch=false --browsers=ChromeHeadlessCI --code-coverage=false --include='../tests/karma/ts/services/data-messaging*.spec.ts' --include=../tests/karma/ts/services/db-sync.service.spec.ts --include=../tests/karma/ts/modules/messages/data-message-composer.component.spec.ts --include=../tests/karma/ts/modules/messages/messages-content.component.spec.ts` passed all 82 focused tests.
 - The full WebApp Karma run with `npm --prefix webapp run unit -- --watch=false --browsers=ChromeHeadlessCI` passed 3,271 tests and met coverage thresholds. It reproduced the same 19 failures as Step 5.
 - `npm run lint-translations` passed. `npm run lint` passed ESLint and the blank-link check and exited on the existing ShellCheck warning `SC2155` in `build-images.sh:8`.
+
+## Step 7 — Messages screen
+
+- `DataMessagingHistoryService` reads offline messages and the directory from the current account's PouchDB cache. A local submit or sync completion invalidates the history view, including when only the directory changed. Dashboard reads page through the scoped API and keep the current account's cursor and accepted messages in memory. A successful dashboard send updates that view immediately and the next download deduplicates it by ID. Concurrent requests share a refresh, and an interrupted refresh resumes from the last applied page.
+- The focused browser suite for `data-messaging*.spec.ts` passed 20 tests, including dashboard cursor replay, account isolation, and reading local data after a sync notification.
