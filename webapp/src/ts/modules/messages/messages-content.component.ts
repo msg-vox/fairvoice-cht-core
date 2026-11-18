@@ -234,6 +234,9 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   private scrollToUnread() {
+    if (!this.hasToScroll) {
+      return;
+    }
     const content = $('.message-content-wrapper');
 
     if (!content || !content.length) {
@@ -245,9 +248,11 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
     content.scrollTop(scrollTo);
     this.hasToScroll = false;
 
-    this.checkScrollFnDef = () => this.checkScroll(content);
-    $('.message-content-wrapper').off('scroll', this.checkScrollFnDef);
-    $('.message-content-wrapper').on('scroll', this.checkScrollFnDef);
+    content.off('scroll', this.checkScrollFnDef);
+    if (!this.allLoaded) {
+      this.checkScrollFnDef = () => this.checkScroll(content);
+      content.on('scroll', this.checkScrollFnDef);
+    }
   }
 
   // See URL parameter "id" note at top of file

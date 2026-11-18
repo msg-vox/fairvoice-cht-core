@@ -172,8 +172,11 @@ describe('Messages Component', () => {
     const { filter, callback } = changesService.subscribe.secondCall.args[0];
     expect(filter({ id: 'read:message:message-id' })).to.be.false;
     expect(filter({ id: 'read:data_message:data-message:1' })).to.be.true;
+    dataConversations.getConversations.resetHistory();
     callback();
-    tick();
+    callback();
+    tick(100);
+    expect(dataConversations.getConversations.calledOnce).to.be.true;
     expect(setConversations.lastCall.args[0][1].read).to.be.true;
   }));
 

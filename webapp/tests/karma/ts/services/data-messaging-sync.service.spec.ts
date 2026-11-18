@@ -7,7 +7,12 @@ import { v7 as uuid } from 'uuid';
 import { DataMessage, DataMessagingDirectory, DataMessagingService } from '@mm-services/data-messaging.service';
 import { DataMessagingStoreService } from '@mm-services/data-messaging-store.service';
 import { DataMessagingSyncService } from '@mm-services/data-messaging-sync.service';
-import { readMessagingCheckpoint } from '@mm-services/data-messaging-directory.service';
+import { DataMessagingDirectoryService, readMessagingCheckpoint } from '@mm-services/data-messaging-directory.service';
+import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
+import { DataMessagingConversationsService } from '@mm-services/data-messaging-conversations.service';
+import { AddReadStatusService } from '@mm-services/add-read-status.service';
+import { MarkReadService } from '@mm-services/mark-read.service';
+import { ReadDocsProvider } from '@mm-providers/read-docs.provider';
 import { DbService } from '@mm-services/db.service';
 import { SessionService } from '@mm-services/session.service';
 
@@ -173,6 +178,99 @@ describe('Data messaging sync', () => {
     expect(await submit).to.equal('sent');
     await sync.sync();
     expect(getMessaging.callCount).to.equal(0);
+  });
+
+  it('exchanges a queued message and a dashboard reply with independent unread markers', async () => {
+    const workerMeta = pouch(dbName + '-worker-meta');
+    const dashboardMeta = pouch(dbName + '-dashboard-meta');
+    const workerSession = TestBed.inject(SessionService);
+    const dashboardSession = {
+      userCtx: () => ({ name: 'recipient' }), isOnlineOnly: () => true,
+    } as SessionService;
+    const devices = { getMessaging } as unknown as DbService;
+    const workerDirectory = [{
+      account_id: recipient, display_name: 'Alex', role_label: 'Nurse', place_label: 'Clinic',
+    }];
+    const dashboardDirectory = [{ account_id, display_name: 'Jo', role_label: 'CHW', place_label: 'Village' }];
+    const workerHistory = new DataMessagingHistoryService(
+      api, storage, new DataMessagingDirectoryService(api, workerSession, devices), workerSession
+    );
+    const dashboardApi = new DataMessagingService(TestBed.inject(HttpClient), dashboardSession);
+    const dashboardStore = new DataMessagingStoreService(dashboardSession, devices, dashboardApi);
+    const dashboardHistory = new DataMessagingHistoryService(
+      dashboardApi,
+      dashboardStore,
+      new DataMessagingDirectoryService(dashboardApi, dashboardSession, devices),
+      dashboardSession
+    );
+    const workerMetadata = { get: () => workerMeta } as unknown as DbService;
+    const dashboardMetadata = { get: () => dashboardMeta } as unknown as DbService;
+    const workerThreads = new DataMessagingConversationsService(
+      workerHistory, new AddReadStatusService(workerMetadata)
+    );
+    const dashboardThreads = new DataMessagingConversationsService(
+      dashboardHistory, new AddReadStatusService(dashboardMetadata)
+    );
+
+    try {
+      const initialise = sync.sync();
+      (await nextRequest(syncPath)).flush(page([], '0', false, workerDirectory));
+      await initialise;
+      expect(await workerHistory.getDirectory()).to.deep.equal(workerDirectory);
+
+      const first = api.compose(recipient, 'Sent from the offline device');
+      expect(await storage.submit(first)).to.equal('waiting');
+      const [waitingThread] = await workerThreads.getConversations();
+      expect(waitingThread.messages[0]).to.include({ delivery: 'waiting', outgoing: true });
+      const openDashboard = dashboardThreads.getConversations();
+      (await nextRequest(syncPath)).flush({ ...page([], '0', false, dashboardDirectory), account_id: recipient });
+      expect(await openDashboard).to.deep.equal([]);
+
+      const upload = sync.sync();
+      const firstRequest = await nextRequest(sendPath);
+      expect(firstRequest.request.body).to.deep.equal(first);
+      firstRequest.flush({ id: first._id });
+      (await nextRequest(syncPath)).flush(page([first], '1-test', false, workerDirectory));
+      await upload;
+
+      const downloadDashboard = dashboardHistory.refreshOnline();
+      const dashboardRequest = await nextRequest(syncPath);
+      expect(dashboardRequest.request.params.get('since')).to.equal('0');
+      dashboardRequest.flush({ ...page([first], '1-test', false, dashboardDirectory), account_id: recipient });
+      await downloadDashboard;
+      const [inbox] = await dashboardThreads.getConversations();
+      expect(inbox).to.include({ id: account_id, name: 'Jo' });
+      expect(inbox.messages[0]).to.include({ read: false, outgoing: false });
+      expect(await dashboardThreads.getUnreadCount()).to.equal(1);
+      await new MarkReadService(dashboardMetadata, new ReadDocsProvider()).markAsRead([inbox.messages[0].doc]);
+      expect(await dashboardThreads.getUnreadCount()).to.equal(0);
+
+      const reply = dashboardApi.compose(account_id, 'Replied from the dashboard');
+      const sendReply = dashboardStore.submit(reply);
+      (await nextRequest(sendPath)).flush({ id: reply._id });
+      expect(await sendReply).to.equal('sent');
+      const [dashboardThread] = await dashboardThreads.getConversations();
+      expect(dashboardThread.messages[1]).to.include({ delivery: 'sent', outgoing: true });
+      expect(await workerThreads.getUnreadCount()).to.equal(0);
+
+      const downloadWorker = sync.sync();
+      const workerRequest = await nextRequest(syncPath);
+      expect(workerRequest.request.params.get('since')).to.equal('1-test');
+      workerRequest.flush(page([reply], '2-test', false, []));
+      await downloadWorker;
+      const [workerThread] = await workerThreads.getConversations();
+      expect(workerThread).to.include({ name: recipient, recipient: undefined });
+      expect(workerThread.messages.map(({ doc }) => doc.text)).to.deep.equal([first.text, reply.text]);
+      expect(workerThread.messages[1]).to.include({ read: false, outgoing: false });
+      expect(await workerThreads.getUnreadCount()).to.equal(1);
+      await new MarkReadService(workerMetadata, new ReadDocsProvider()).markAsRead([workerThread.messages[1].doc]);
+      expect(await workerThreads.getUnreadCount()).to.equal(0);
+      const dashboardMarkers = await dashboardMeta.allDocs();
+      expect(dashboardMarkers.rows.map(({ id }) => id)).to.deep.equal(['read:data_message:' + first._id]);
+      expect((await workerMeta.allDocs()).rows.map(({ id }) => id)).to.deep.equal(['read:data_message:' + reply._id]);
+    } finally {
+      await Promise.all([workerMeta.destroy(), dashboardMeta.destroy()]);
+    }
   });
 
   it('leaves a session rejection pending and preserves a conflicting attempt beside canonical history', async () => {

@@ -1,6 +1,6 @@
 import { Component, NgZone, OnDestroy, OnInit } from '@angular/core';
 import { find as _find, isEqual as _isEqual, last as _last } from 'lodash-es';
-import { combineLatest, debounceTime, fromEvent, merge, Subscription, take, timer } from 'rxjs';
+import { combineLatest, debounceTime, fromEvent, merge, Subject, Subscription, take, timer } from 'rxjs';
 import { DOC_TYPES } from '@medic/constants';
 import { Store } from '@ngrx/store';
 import { Router, RouterLink, RouterOutlet } from '@angular/router';
@@ -55,6 +55,7 @@ export class MessagesComponent implements OnInit, OnDestroy {
   private readonly messagesActions: MessagesActions;
   private destroyed = false;
   private dataConversations: Record<string, any>[] = [];
+  private readonly dataReadChanges = new Subject<void>();
   private dataRequest = 0;
   readonly buttonType = ButtonType;
   readonly dataConversationType = DATA_CONVERSATION;
@@ -157,14 +158,15 @@ export class MessagesComponent implements OnInit, OnDestroy {
   }
 
   private watchDataConversations() {
-    this.subscriptions.add(this.dataHistory.changes.pipe(debounceTime(100)).subscribe(() => {
+    const updates = merge(this.dataHistory.changes, this.dataReadChanges).pipe(debounceTime(100));
+    this.subscriptions.add(updates.subscribe(() => {
       void this.updateDataConversations();
     }));
     this.subscriptions.add(this.changesService.subscribe({
       metaDb: true,
       key: 'messages-data-read',
       filter: change => change.id?.startsWith(`read:${DOC_TYPES.DATA_MESSAGE}:`),
-      callback: () => void this.updateDataConversations(),
+      callback: () => this.dataReadChanges.next(),
     }));
     if (!this.sessionService.isOnlineOnly()) {
       return;

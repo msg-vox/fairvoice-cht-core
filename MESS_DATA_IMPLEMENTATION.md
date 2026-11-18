@@ -107,11 +107,30 @@ Online-only CHT requests can reach CouchDB views, changes, and other queries thr
 ## Step 7 — Messages screen
 
 - `DataMessagingHistoryService` reads offline messages and the directory from the current account's PouchDB cache. A local submit or sync completion invalidates the history view, including when only the directory changed. Dashboard reads page through the scoped API and keep the current account's cursor and accepted messages in memory. A successful dashboard send updates that view immediately and the next download deduplicates it by ID. Concurrent requests share a refresh, and an interrupted refresh resumes from the last applied page.
-- The focused browser suite for `data-messaging*.spec.ts` passed 20 tests, including dashboard cursor replay, account isolation, and reading local data after a sync notification.
 - Data threads group by the peer's CHT account ID. A missing directory entry leaves the peer's ID as the history label. Thread rows use the composition timestamp and canonical message ID for ordering. The local record ID breaks ties between a rejected draft and a different canonical message with the same ID.
 - Incoming read markers use the current user's existing metadata database with IDs of the form `read:data_message:data-message:<uuid>`. Messages from the current account are already read in the view. The Messages badge adds incoming unread data messages to the existing SMS count. The separate read type keeps data markers out of clinical count subtraction.
-- The focused messaging, read-status and unread-count browser suites passed 43 tests.
 - The inbox merges data thread previews with SMS in the existing list. `/messages/data:<account ID>` opens a data thread and retains the colon in a full account ID. The open thread and previews refresh after messaging changes. The list also watches read metadata. The dashboard refreshes the scoped API every 30 seconds while Messages is open and on browser reconnect. Outside Messages, the existing five-minute dashboard unread refresh also checks for data messages.
 - Opening a data thread and receiving messages while it is open write read markers for unread incoming messages. If a directory entry disappears, the same route keeps the history and disables the reply controls.
 - When data messaging is enabled, the Messages send modal opens directly with the data recipient picker. The SMS phone and group picker is used when data messaging is disabled or an SMS action opens the modal with a phone recipient. The data picker shows the published account name, role, and place for each eligible recipient, adding a username when labels collide. Pending and empty directory snapshots have separate messages. Saving a data message opens its account thread.
 - The shared composer rechecks the directory before composing a new message. The dashboard requests the latest snapshot and offline-capable users read their last synced snapshot. An unchanged retry uses the original ID. The API checks live eligibility for new IDs in both cases.
+
+### Verification
+
+- The focused browser run passed 150 tests. It covers SMS phone selection and submission, data recipient selection, read markers and unread counts, stable thread order, live updates, and history after reassignment. The two-account exchange uses real browser PouchDB storage and HTTP test responses to exercise the offline outbox and the connected dashboard in both directions. A physical Android exchange with a running CHT instance remains part of step 8.
+- `COUCH_URL=http://medic:password@localhost:5984/medic COUCH_NODE_NAME=nonode@nohost npm run unit-api` passed 1,714 tests. `npm run integration-api` passed 20 CouchDB-backed tests.
+- `npm run lint-translations` passed. `npm run lint` passed ESLint and the blank-link check and exited on the existing ShellCheck warning `SC2155` in `build-images.sh:8`.
+
+Set `CHROME_BIN` to Chrome for Testing and run the focused suite.
+
+```sh
+npm --prefix webapp run unit -- --watch=false --browsers=ChromeHeadlessCI --code-coverage=false \
+  --include='../tests/karma/ts/modules/messages/*.spec.ts' \
+  --include=../tests/karma/ts/modals/send-message/send-message.component.spec.ts \
+  --include='../tests/karma/ts/services/data-messaging*.spec.ts' \
+  --include=../tests/karma/ts/services/unread-records.service.spec.ts \
+  --include=../tests/karma/ts/services/mark-read.service.spec.ts \
+  --include=../tests/karma/ts/services/add-read-status.service.spec.ts \
+  --include=../tests/karma/ts/services/message-contact.service.spec.ts \
+  --include=../tests/karma/ts/services/send-message.service.spec.ts \
+  --include=../tests/karma/ts/services/db-sync.service.spec.ts
+```
