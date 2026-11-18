@@ -22,6 +22,7 @@ if (UNIT_TEST_ENV) {
     'medicLogs',
     'builds',
     'vault',
+    'dataMessaging',
     'cache',
     'archive',
   ];
@@ -102,6 +103,10 @@ if (UNIT_TEST_ENV) {
   module.exports.medicLogs = new PouchDB(`${environment.couchUrl}-logs`, { fetch: fetchFn });
   module.exports.sentinel = new PouchDB(`${environment.couchUrl}-sentinel`, { fetch: fetchFn });
   module.exports.vault = new PouchDB(`${environment.couchUrl}-vault`, { fetch: fetchFn });
+  module.exports.dataMessaging = new PouchDB(`${environment.couchUrl}-data-messaging`, {
+    fetch: fetchFn,
+    skip_setup: true,
+  });
   module.exports.createVault = () => module.exports.vault.info();
   module.exports.users = new PouchDB(getDbUrl('_users'), { fetch: fetchFn });
   module.exports.archive = new PouchDB(`${environment.couchUrl}-archive`, { fetch: fetchFn });
