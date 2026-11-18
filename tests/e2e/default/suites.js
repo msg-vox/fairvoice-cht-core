@@ -14,6 +14,7 @@ const SUITES = {
   ],
   workflows_1: [
     './contacts/**/*.wdio-spec.js',
+    './messages/**/*.wdio-spec.js',
     './sms/**/*.wdio-spec.js',
   ],
   workflows_2: [

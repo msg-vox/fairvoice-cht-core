@@ -134,3 +134,32 @@ npm --prefix webapp run unit -- --watch=false --browsers=ChromeHeadlessCI --code
   --include=../tests/karma/ts/services/send-message.service.spec.ts \
   --include=../tests/karma/ts/services/db-sync.service.spec.ts
 ```
+
+## Step 8 — Verification and pilot
+
+### Automated verification
+
+- `COUCH_URL=http://medic:password@localhost:5984/medic COUCH_NODE_NAME=nonode@nohost npm run unit-api` passed 1,714 tests. `npm run integration-api` passed 20 tests against CouchDB 3.5.3. The focused WebApp command in step 7 passed all 154 tests with Chrome for Testing 158.0.8127.36.
+- With the same browser, `npm --prefix webapp run unit -- --watch=false --browsers=ChromeHeadlessCI` passed 3,302 tests and reached 80.21% branch coverage. The 18 failing tests also failed at the Step 6 baseline (`73088de7`), which had 20 failures in total.
+- `npm run lint-translations` passed. `npm run lint` passed ESLint and the blank-link check and exited on the existing ShellCheck warning `SC2155` in `build-images.sh:8`.
+- The WebdriverIO spec passed in headless Chrome 158.0.8127.36 with the built WebApp, a locally running CHT API and CouchDB 3.5.3. It covers both directions of the exchange, plain-text rendering, an unrelated online-only account, and rejection after pilot disablement with both participants' accepted history preserved. The local run used `NGINX_HTTPS_PORT=7443 node_modules/.bin/wdio run "$LOCAL_WDIO_CONFIG"` with the default WebdriverIO config adapted to use the running API through a local TLS proxy and explicit Chrome and ChromeDriver binaries.
+
+The standard WebdriverIO harness runs the same spec with the default CHT test services.
+
+```sh
+npm run ci-webdriver-default -- --spec tests/e2e/default/messages/data-messaging.wdio-spec.js
+```
+
+### Backup and restore
+
+- Include `<db>-data-messaging` in the regular CHT backup with the clinical database, `_users`, and the deployment configuration. A full CouchDB data-directory backup includes the messaging database. For database-by-database backups, include it explicitly and capture its `_security` settings. Take the backup set from the same recovery point so accepted messages and their participant account IDs stay together. [CHT Docker backup and restore guide](https://docs.communityhealthtoolkit.org/hosting/cht/docker/backups/)
+- Rehearse the restore in an isolated staging instance with the same database and account IDs. Before exposing the restored instance, verify that the messaging database grants direct access only to the API service account and database administrators. Use the scoped sync API to confirm that both restored participants can read a known message and an unrelated account receives neither the message nor either participant's directory. Log in with a clean browser profile to verify an initial sync from the restored database.
+- Accepted messages live in CouchDB. Drafts still waiting to upload live on the sender's device and are outside the server backup. Preserve the device cache during recovery so pending messages can retry with their original IDs.
+
+### Pilot checks
+
+1. Use a staging deployment and one place hierarchy. Set `data_messaging.enabled` to `true` and `data_messaging.pilot_root_place_ids` to a list containing that root's ID. Prepare an offline-capable worker, an online-only supervisor assigned above the worker, and an unrelated online-only account.
+2. Sync the Android device once. Check that the worker and supervisor see each other in their recipient lists and the unrelated account sees neither. Disconnect the Android device, open Messages, and confirm the cached directory is available. Compose a message and verify **Waiting to sync**. Close and reopen the app while disconnected to check that the draft remains in the thread.
+3. Reconnect the device and let it sync. Verify **Sent to server** and one incoming copy on the dashboard. Reply from the dashboard and sync the Android device again. Verify the incoming message and unread count, then open the thread and confirm the count clears. Check that the unrelated account sees no conversation and that the SMS composer still works.
+4. Queue another message on the disconnected device. Set `data_messaging.enabled` to `false` and wait for the server directory to become empty. Reconnect the device and verify that the queued message shows a rejection, its text can be copied, and the prior exchange is still readable by both participants. Confirm the dashboard cannot send a new data message and the unrelated account still sees no history.
+5. Record the device and app versions, the backup restore result, and the pilot results before expanding to additional roots. Android app restart and the deployment's staging restore still require verification.
