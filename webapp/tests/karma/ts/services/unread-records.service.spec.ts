@@ -1,11 +1,14 @@
 import { fakeAsync, TestBed, tick } from '@angular/core/testing';
 import sinon from 'sinon';
 import { expect } from 'chai';
+import { Subject } from 'rxjs';
 
 import { UnreadRecordsService } from '@mm-services/unread-records.service';
 import { DbService } from '@mm-services/db.service';
 import { SessionService } from '@mm-services/session.service';
 import { ChangesService } from '@mm-services/changes.service';
+import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
+import { DataMessagingConversationsService } from '@mm-services/data-messaging-conversations.service';
 
 describe('UnreadRecordsService', () => {
   let service: UnreadRecordsService;
@@ -13,6 +16,8 @@ describe('UnreadRecordsService', () => {
   let dbInstance;
   let changesService;
   let sessionService;
+  let dataHistory;
+  let dataConversations;
 
   beforeEach(() => {
     dbInstance = {
@@ -24,12 +29,16 @@ describe('UnreadRecordsService', () => {
     dbService = { get: () => dbInstance };
     changesService = { subscribe: sinon.stub().returns({ unsubscribe: sinon.stub() }) };
     sessionService = { isOnlineOnly: sinon.stub() };
+    dataHistory = { changes: new Subject(), refreshOnline: sinon.stub().resolves() };
+    dataConversations = { getUnreadCount: sinon.stub().resolves(0) };
 
     TestBed.configureTestingModule({
       providers: [
         { provide: DbService, useValue: dbService },
         { provide: SessionService, useValue: sessionService },
-        { provide: ChangesService, useValue: changesService }
+        { provide: ChangesService, useValue: changesService },
+        { provide: DataMessagingHistoryService, useValue: dataHistory },
+        { provide: DataMessagingConversationsService, useValue: dataConversations },
       ]
     });
 
@@ -53,6 +62,36 @@ describe('UnreadRecordsService', () => {
   });
 
   describe('count unread', () => {
+    it('adds unread data messages to the SMS count on download and read metadata changes', fakeAsync(() => {
+      const result = sinon.spy();
+      dbInstance.query.withArgs('medic-client/data_records_by_type').resolves({ rows: [{ key: 'message', value: 3 }] });
+      dbInstance.query.withArgs('medic-user/read').resolves({
+        rows: [{ key: 'message', value: 1 }, { key: 'data_message', value: 4 }],
+      });
+      service.init(result);
+      tick();
+      expect(result.lastCall.args).to.deep.equal([null, { report: 0, message: 2 }]);
+      dataConversations.getUnreadCount.resolves(2);
+      dataHistory.changes.next();
+      tick(100);
+      expect(result.lastCall.args).to.deep.equal([null, { report: 0, message: 4 }]);
+
+      dataConversations.getUnreadCount.resolves(1);
+      changesService.subscribe.secondCall.args[0].callback();
+      tick();
+      expect(result.lastCall.args).to.deep.equal([null, { report: 0, message: 3 }]);
+    }));
+
+    it('retains the clinical counts when messaging history is unavailable', fakeAsync(() => {
+      const result = sinon.spy();
+      dbInstance.query.withArgs('medic-client/data_records_by_type').resolves({ rows: [{ key: 'message', value: 1 }] });
+      dbInstance.query.withArgs('medic-user/read').resolves({ rows: [] });
+      dataConversations.getUnreadCount.rejects(new Error('Messaging unavailable'));
+      service.init(result);
+      tick();
+      expect(result.lastCall.args).to.deep.equal([null, { report: 0, message: 1 }]);
+    }));
+
     it('should return zero when no data_records', fakeAsync(() => {
       let result;
       dbInstance.query.resolves({ rows: [] });

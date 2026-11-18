@@ -1,10 +1,12 @@
 import { Injectable, OnDestroy } from '@angular/core';
 import { find as _find } from 'lodash-es';
-import { Subscription } from 'rxjs';
+import { debounceTime, Subscription } from 'rxjs';
 
 import { DbService } from '@mm-services/db.service';
 import { ChangesService } from '@mm-services/changes.service';
 import { SessionService } from '@mm-services/session.service';
+import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
+import { DataMessagingConversationsService } from '@mm-services/data-messaging-conversations.service';
 import { ReadDocsProvider } from '@mm-providers/read-docs.provider';
 import { DOC_TYPES } from '@medic/constants';
 
@@ -15,12 +17,15 @@ export class UnreadRecordsService implements OnDestroy {
   subscriptions: Subscription = new Subscription();
   private readonly TYPES = [ 'report', 'message' ];
   private callback;
+  private countRequest = 0;
 
   constructor(
     private dbService: DbService,
     private changesService: ChangesService,
     private sessionService: SessionService,
-    private readDocsProvider: ReadDocsProvider
+    private readDocsProvider: ReadDocsProvider,
+    private dataHistory: DataMessagingHistoryService,
+    private dataConversations: DataMessagingConversationsService,
   ) { }
 
   ngOnDestroy(): void {
@@ -45,23 +50,26 @@ export class UnreadRecordsService implements OnDestroy {
   }
 
   private getCount(callback) {
+    const request = ++this.countRequest;
     return Promise
       .all([
         this.getTotal(),
-        this.getRead()
+        this.getRead(),
+        this.dataConversations.getUnreadCount().catch(() => 0),
       ])
-      .then(([total, read]) => {
+      .then(([total, read, dataUnread]) => {
         const result = this.TYPES.reduce((countMap, type) => {
           countMap[type] = this.getRowValueForType(type, total) - this.getRowValueForType(type, read);
           return countMap;
-        }, {});
+        }, {} as Record<string, number>);
+        result.message += dataUnread;
 
-        if (callback) {
+        if (callback && request === this.countRequest) {
           callback(null, result);
         }
       })
       .catch(error => {
-        if (callback) {
+        if (callback && request === this.countRequest) {
           callback(error);
         }
       });
@@ -104,7 +112,7 @@ export class UnreadRecordsService implements OnDestroy {
       .info()
       .then(() => {
         // get the initial count
-        this.getCount(this.callback);
+        this.count();
 
         // listen for changes in the medic db and update the count
         const statusMedicSubscription = this.changesService.subscribe({
@@ -123,11 +131,17 @@ export class UnreadRecordsService implements OnDestroy {
           callback: () => this.getCount(this.callback)
         });
         this.subscriptions.add(statusMetaSubscription);
+        this.subscriptions.add(this.dataHistory.changes.pipe(debounceTime(100)).subscribe(() => this.countCached()));
       });
   }
 
-  count() {
+  private countCached() {
     return this.getCount(this.callback);
+  }
+
+  count() {
+    void this.dataHistory.refreshOnline().catch(() => {});
+    return this.countCached();
   }
 
 }

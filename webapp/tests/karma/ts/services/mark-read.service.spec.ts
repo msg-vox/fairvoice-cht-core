@@ -50,6 +50,13 @@ describe('MarkReadService', () => {
     expect(bulkDocs.args[0][0]).to.deep.equal(expected);
   });
 
+  it('writes data message markers in the existing metadata database under their own read type', async () => {
+    bulkDocs.resolves();
+    await service.markAsRead([{ _id: 'data-message:123', type: 'data_message' }]);
+    expect(dbService.get.firstCall.args).to.deep.equal([{ meta: true }]);
+    expect(bulkDocs.firstCall.args).to.deep.equal([[{ _id: 'read:data_message:data-message:123' }]]);
+  });
+
   it('should ignore conflicts when marking a document read thats already read', async () => {
     const given = [ { _id: 'xyz' } ];
     const conflictResult = { ok: false, id: 'read:message:xyz', rev: '1' };

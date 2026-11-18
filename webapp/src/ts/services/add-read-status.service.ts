@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { DOC_TYPES } from '@medic/constants';
 
 import { DbService } from '@mm-services/db.service';
 
@@ -15,7 +16,7 @@ export class AddReadStatusService {
     });
   }
 
-  private addRead(type, models: Record<string, any>[] = []): Promise<Record<string, any>[]> {
+  private addRead<T extends { id?: string; _id?: string; read?: boolean }>(type, models: T[] = []): Promise<T[]> {
     if (!models.length) {
       return Promise.resolve(models);
     }
@@ -53,5 +54,9 @@ export class AddReadStatusService {
    */
   updateMessages(models) {
     return this.addRead('message', models);
+  }
+
+  updateDataMessages<T extends { _id: string; read: boolean }>(models: T[]): Promise<T[]> {
+    return this.addRead(DOC_TYPES.DATA_MESSAGE, models);
   }
 }

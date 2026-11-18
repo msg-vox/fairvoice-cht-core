@@ -51,7 +51,7 @@ export class DataMessagingHistoryService {
     return this.onlineHistory;
   }
 
-  async read(): Promise<DataMessagingHistory> {
+  async read({ loadOnline = true } = {}): Promise<DataMessagingHistory> {
     const accountId = this.messaging.accountId();
     if (!accountId) {
       this.onlineHistory = undefined;
@@ -68,7 +68,7 @@ export class DataMessagingHistoryService {
     }
 
     const history = this.getOnlineHistory(accountId);
-    if (!history.since) {
+    if (loadOnline && !history.since) {
       await this.refreshOnline();
     }
     this.checkAccount(accountId);
