@@ -53,7 +53,7 @@ describe('Users service', () => {
         query: sinon.stub(),
       },
       medicLogs: { get: sinon.stub(), put: sinon.stub(), },
-      users: { query: sinon.stub(), get: sinon.stub(), put: sinon.stub() },
+      users: { query: sinon.stub(), get: sinon.stub(), put: sinon.stub(), allDocs: sinon.stub() },
     });
     getPerson = sinon.stub();
     getPlace = sinon.stub();
@@ -1240,6 +1240,24 @@ describe('Users service', () => {
       db.medic.get.withArgs(id).resolves({});
       await chai.expect(service.getMessagingAccount('researcher')).to.be.rejectedWith(error.message);
     });
+  });
+
+  it('lists only active messaging accounts with current places, roles and display names', async () => {
+    const login = name => ({
+      _id: PREFIXES.COUCH_USER + name, name, roles: ['cr'], facility_id: 'current-place', password: 'private',
+    });
+    const [active, unnamed, inactive, missing] = ['active', 'unnamed', 'inactive', 'missing'].map(login);
+    db.users.allDocs.resolves({ rows: [active, unnamed, inactive, missing].map(doc => ({ doc })) });
+    db.medic.allDocs.resolves({ rows: [
+      { doc: { _id: active._id, fullname: ' Alex ', facility_id: 'old-place', phone: 'private' } },
+      { doc: { _id: unnamed._id } },
+      { doc: { _id: inactive._id, inactive: true } },
+    ] });
+    const accounts = await service.listMessagingAccounts();
+    chai.expect(accounts).to.deep.equal([
+      { id: active._id, displayName: 'Alex', roles: ['cr'], facilityIds: ['current-place'] },
+      { id: unnamed._id, displayName: 'unnamed', roles: ['cr'], facilityIds: ['current-place'] },
+    ]);
   });
 
   describe('createPlace', () => {

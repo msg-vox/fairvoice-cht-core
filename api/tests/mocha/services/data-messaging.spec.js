@@ -173,6 +173,51 @@ describe('Data messaging contract', () => {
       assert.equal(getAccount.callCount, 0);
     });
 
+    describe('directory rebuild', () => {
+      const directoryPrefix = 'data-message-directory:';
+      let listAccounts;
+      let readDirectories;
+      let save;
+
+      beforeEach(() => {
+        listAccounts = sinon.stub(users, 'listMessagingAccounts');
+        readDirectories = sinon.stub(db.dataMessaging, 'allDocs').resolves({ rows: [] });
+        save = sinon.stub(db.dataMessaging, 'put').resolves();
+      });
+
+      it('publishes entries matching the live send policy and tracks all visited places', async () => {
+        const accounts = await Promise.all(['site', 'peer', 'pilot', 'multiple', 'country', 'missingPlace'].map(
+          async name => ({ ...await users.getMessagingAccount(name), displayName: name })
+        ));
+        listAccounts.resolves(accounts);
+        const watchPlace = sinon.spy();
+        await dataMessaging.rebuildDirectories(watchPlace);
+        assert.equal(save.callCount, accounts.length);
+        for (const [doc] of save.args) {
+          const ids = accounts.map(account => account.id).sort();
+          const expected = await dataMessaging.getEligibleRecipientIds(doc.owner_id, ids);
+          assert.deepEqual(doc.entries.map(entry => entry.account_id), expected);
+        }
+        assert.equal(watchPlace.calledWith('missing'), true);
+        assert.equal(watchPlace.calledWith('country'), true);
+      });
+
+      it('only clears previously published directories when disabled and skips identical revisions', async () => {
+        const owner_id = accountId('site');
+        const id = directoryPrefix + owner_id;
+        const doc = { _id: id, _rev: '1-test', type: 'data_message_directory', owner_id, entries: [{ old: true }] };
+        readDirectories.resolves({ rows: [{ id, doc }] });
+        getSettings.returns({ enabled: false });
+
+        await dataMessaging.rebuildDirectories();
+        assert.deepEqual(save.args, [[{ ...doc, entries: [] }]]);
+        assert.equal(listAccounts.callCount, 0);
+        readDirectories.resolves({ rows: [{ id, doc: { ...doc, entries: [] } }] });
+        await dataMessaging.rebuildDirectories();
+        assert.equal(save.callCount, 1);
+      });
+    });
+
     describe('send', () => {
       const message = {
         _id: 'data-message:01a1f048-0d7b-711f-af1d-36de5dda8242',

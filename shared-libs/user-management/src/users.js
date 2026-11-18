@@ -886,17 +886,34 @@ const getUserDoc = (username, dbName) => db[dbName]
 
 const getUserDocsByName = (name) => Promise.all(['users', 'medic'].map(dbName => getUserDoc(name, dbName)));
 
-const getMessagingAccount = async username => {
-  try {
-    const [user, settings] = await getUserDocsByName(username);
-    if (settings.inactive) {
-      return;
-    }
+const mapMessagingAccount = (user, settings) => {
+  if (settings && !settings.inactive) {
     return {
       id: user._id,
       roles: user.roles,
       facilityIds: forceArray(user.facility_id).filter(Boolean),
     };
+  }
+};
+
+const listMessagingAccounts = async () => {
+  const [logins, settings] = await getUsersAndSettings();
+  const settingsById = new Map(settings.map(doc => [doc._id, doc]));
+  return logins.flatMap(login => {
+    const settings = settingsById.get(login._id);
+    const account = mapMessagingAccount(login, settings);
+    if (!account) {
+      return [];
+    }
+    const fullname = typeof settings.fullname === 'string' && settings.fullname.trim();
+    return [{ ...account, displayName: fullname || login.name }];
+  });
+};
+
+const getMessagingAccount = async username => {
+  try {
+    const [user, settings] = await getUserDocsByName(username);
+    return mapMessagingAccount(user, settings);
   } catch (err) {
     if (err.status !== 404) {
       throw err;
@@ -1065,6 +1082,7 @@ module.exports = {
   getUserDoc: (username) => getUserDoc(username, 'users'),
   getUserSettings,
   getMessagingAccount,
+  listMessagingAccounts,
   /**
    * Take the request data and create valid user, user-settings and contact
    * objects. Returns the response body in the callback.

@@ -1,3 +1,4 @@
+const { isDeepStrictEqual } = require('node:util');
 const auth = require('../auth');
 const config = require('../config');
 const db = require('../db');
@@ -55,10 +56,12 @@ const getPilotLineage = async (placeId, pilotRoots, getPlace, settings) => {
   return [];
 };
 
+const getStrictAncestors = async (id, getLineage) => (await getLineage(id)).slice(1);
+
 const hasAssignedAncestor = async (descendant, ancestor, getLineage) => {
   const assignments = new Set(ancestor.facilityIds);
   for (const placeId of new Set(descendant.facilityIds)) {
-    const [, ...ancestorIds] = await getLineage(placeId);
+    const ancestorIds = await getStrictAncestors(placeId, getLineage);
     if (ancestorIds.some(id => assignments.has(id))) {
       return true;
     }
@@ -66,29 +69,39 @@ const hasAssignedAncestor = async (descendant, ancestor, getLineage) => {
   return false;
 };
 
-const createRecipientPolicy = () => {
-  const { enabled, pilotRootPlaceIds } = getConfig();
+const createPilotPlaces = (pilotRootPlaceIds, settings, watchPlace = () => {}) => {
   const pilotRoots = new Set(pilotRootPlaceIds);
-  const settings = config.getAll();
   const readPlace = dataContext.bind(Place.v1.get);
   const places = new Map();
-  const accounts = new Map();
+  const lineages = new Map();
 
   const getPlace = id => {
     if (!places.has(id)) {
+      watchPlace(id);
       places.set(id, readPlace(Qualifier.byUuid(id)));
     }
     return places.get(id);
   };
 
+  const getLineage = id => {
+    if (!lineages.has(id)) {
+      lineages.set(id, getPilotLineage(id, pilotRoots, getPlace, settings));
+    }
+    return lineages.get(id);
+  };
+  return { getPlace, getLineage };
+};
+
+const createRecipientPolicy = () => {
+  const { enabled, pilotRootPlaceIds } = getConfig();
+  const { getLineage } = createPilotPlaces(pilotRootPlaceIds, config.getAll());
+  const accounts = new Map();
   const getAccount = name => {
     if (!accounts.has(name)) {
       accounts.set(name, users.getMessagingAccount(name));
     }
     return accounts.get(name);
   };
-
-  const getLineage = id => getPilotLineage(id, pilotRoots, getPlace, settings);
 
   return async (senderId, recipientId) => {
     const senderName = getUsername(senderId);
@@ -108,6 +121,92 @@ const createRecipientPolicy = () => {
     return await hasAssignedAncestor(sender, recipient, getLineage) ||
       hasAssignedAncestor(recipient, sender, getLineage);
   };
+};
+
+const getDirectoryEntries = async (pilotRoots, settings, watchPlace) => {
+  const accounts = await users.listMessagingAccounts();
+  const { getPlace, getLineage } = createPilotPlaces(pilotRoots, settings, watchPlace);
+  const entries = new Map();
+  const recipients = new Map();
+  const accountsByPlace = new Map();
+  for (const account of accounts) {
+    const placeLabels = new Set();
+    for (const id of new Set(account.facilityIds)) {
+      if (!(await getLineage(id)).length) {
+        continue;
+      }
+      if (!accountsByPlace.has(id)) {
+        accountsByPlace.set(id, []);
+      }
+      accountsByPlace.get(id).push(account.id);
+      const { name } = await getPlace(id);
+      if (typeof name === 'string' && name) {
+        placeLabels.add(name);
+      }
+    }
+    const roleLabels = account.roles
+      .map(role => settings.roles?.[role]?.name)
+      .filter(Boolean)
+      .map(name => config.translate(name, settings.locale || 'en'));
+    entries.set(account.id, {
+      account_id: account.id,
+      display_name: account.displayName,
+      role_label: [...new Set(roleLabels)].join(', '),
+      place_label: [...placeLabels].join(', '),
+    });
+    recipients.set(account.id, new Set());
+  }
+
+  // Join each assigned place with the accounts assigned to its strict pilot ancestors.
+  for (const [placeId, descendants] of accountsByPlace) {
+    for (const ancestor of await getStrictAncestors(placeId, getLineage)) {
+      for (const parentId of accountsByPlace.get(ancestor) || []) {
+        for (const childId of descendants) {
+          if (parentId !== childId) {
+            recipients.get(parentId).add(childId);
+            recipients.get(childId).add(parentId);
+          }
+        }
+      }
+    }
+  }
+
+  return new Map([...recipients].map(([id, ids]) => [
+    id, [...ids].sort().map(id => entries.get(id)),
+  ]));
+};
+
+const rebuildDirectories = async watchPlace => {
+  const { rows } = await db.dataMessaging.allDocs({
+    include_docs: true,
+    startkey: DIRECTORY_PREFIX,
+    endkey: DIRECTORY_PREFIX + '\ufff0',
+  });
+  const existing = new Map(rows.map(({ id, doc }) => [id.slice(DIRECTORY_PREFIX.length), doc]));
+  const { enabled, pilotRootPlaceIds } = getConfig();
+  const directories = enabled
+    ? await getDirectoryEntries(pilotRootPlaceIds, config.getAll(), watchPlace)
+    : new Map();
+
+  for (const accountId of existing.keys()) {
+    if (!directories.has(accountId)) {
+      directories.set(accountId, []);
+    }
+  }
+  for (const [owner_id, entries] of directories) {
+    const previous = existing.get(owner_id);
+    if (previous?.type === DIRECTORY_TYPE && previous.owner_id === owner_id &&
+        isDeepStrictEqual(previous.entries, entries)) {
+      continue;
+    }
+    await db.dataMessaging.put({
+      _id: DIRECTORY_PREFIX + owner_id,
+      ...(previous && { _rev: previous._rev }),
+      type: DIRECTORY_TYPE,
+      owner_id,
+      entries,
+    });
+  }
 };
 
 const validateMessage = message => {
@@ -203,6 +302,7 @@ const getSyncPage = async (accountId, since) => {
     }));
 
   return {
+    account_id: accountId,
     messages,
     directory,
     next_since: String(changes.last_seq),
@@ -213,6 +313,7 @@ const getSyncPage = async (accountId, since) => {
 module.exports = {
   getConfig,
   getSyncPage,
+  rebuildDirectories,
   send,
 
   getAccount: async req => {

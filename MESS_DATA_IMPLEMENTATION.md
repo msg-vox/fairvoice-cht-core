@@ -69,3 +69,13 @@ Online-only CHT requests can reach CouchDB views, changes, and other queries thr
 - With `CHROME_BIN` set to Chrome for Testing, `npm --prefix webapp run unit -- --watch=false --browsers=ChromeHeadlessCI --code-coverage=false --include=../tests/karma/ts/services/data-messaging.service.spec.ts --include=../tests/karma/ts/modules/messages/messages-content.component.spec.ts` passed all 17 focused tests, including a rejected item followed by a successful upload and literal rendering of HTML-like text.
 - The full WebApp Karma run with `npm --prefix webapp run unit -- --watch=false --browsers=ChromeHeadlessCI` met coverage thresholds and passed 3,255 tests. Its 19 failures also reproduced before Step 4 on `vvzyzrky`, which passed 3,249 tests.
 - `npm run lint` passed ESLint and the blank-link check. ShellCheck reported the existing `SC2155` warning in `build-images.sh:8`. ESLint reported the existing unused directive in `api/tests/mocha/services/settings.spec.js`.
+
+## Step 5 — Recipient directories
+
+- `dataMessaging.rebuildDirectories` joins the current active accounts to their validated pilot place lineages. It uses the same strict ancestor calculation as sends and indexes accounts by assigned place to avoid comparing every account pair. Each eligible account appears once in account-ID order, including when multiple assignments qualify.
+- Entries contain the account ID, name from user settings with a username fallback, configured roles resolved in the application’s default language, and names of valid pilot assignments. The API publishes an empty snapshot for an active account without eligible recipients. Disabling the pilot or removing an account clears its existing snapshot. A deployment with messaging disabled and no prior snapshot returns `null`.
+- The scoped sync response includes the authenticated `account_id` alongside the directory. Clients use it to bind the response to the local account before storing the snapshot.
+
+### Verification
+
+- With the CouchDB unit-test environment documented above, `UNIT_TEST_ENV=1 npm test -w @medic/user-management` passed 282 tests and `UNIT_TEST_ENV=1 npx --no-install mocha api/tests/mocha/services/data-messaging.spec.js` passed 30 tests.
