@@ -180,6 +180,43 @@ describe('Messages Component', () => {
     expect(setConversations.lastCall.args[0][1].read).to.be.true;
   }));
 
+  it('refreshes dashboard history on a timer and reconnect while the inbox is open', fakeAsync(() => {
+    sessionService.isOnlineOnly.returns(true);
+    dataHistory.refreshOnline.onFirstCall().rejects(new Error('Disconnected'));
+    component.ngOnInit();
+    tick();
+    expect(dataHistory.refreshOnline.callCount).to.equal(1);
+
+    window.dispatchEvent(new Event('online'));
+    tick(30_000);
+    expect(dataHistory.refreshOnline.callCount).to.equal(3);
+
+    fixture.destroy();
+    window.dispatchEvent(new Event('online'));
+    tick(30_000);
+    expect(dataHistory.refreshOnline.callCount).to.equal(3);
+  }));
+
+  it('recovers from a data history error and ignores an obsolete request', fakeAsync(() => {
+    dataConversations.getConversations.rejects(new Error('Unavailable'));
+    dataHistory.changes.next();
+    tick(100);
+    expect(component.dataError).to.be.true;
+
+    let rejectObsolete!: (error: Error) => void;
+    const obsolete = new Promise((resolve, reject) => rejectObsolete = reject);
+    dataConversations.getConversations.returns(obsolete);
+    dataHistory.changes.next();
+    tick(100);
+
+    dataConversations.getConversations.resolves([]);
+    dataHistory.changes.next();
+    tick(100);
+    rejectObsolete(new Error('Obsolete failure'));
+    tick();
+    expect(component.dataError).to.be.false;
+  }));
+
   it('ngOnDestroy() should unsubscribe from observables', () => {
     const spySubscriptionsUnsubscribe = sinon.spy(component.subscriptions, 'unsubscribe');
 

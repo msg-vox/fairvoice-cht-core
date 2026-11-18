@@ -87,6 +87,28 @@ describe('DataMessagingHistoryService', () => {
     expect(messaging.getSyncPage.thirdCall.args).to.deep.equal([undefined]);
   });
 
+  it('refreshes directory changes on demand and keeps the saved snapshot when a page has no directory', async () => {
+    const changed = sinon.spy();
+    service.changes.subscribe(changed);
+    messaging.getSyncPage.onFirstCall().resolves(page);
+    messaging.getSyncPage.onSecondCall().resolves({ ...page, directory: null, next_since: 'page-2' });
+    messaging.getSyncPage.onThirdCall().resolves({ ...page, directory: [], next_since: 'page-3' });
+
+    expect(await service.getDirectory()).to.deep.equal(page.directory);
+    expect(await service.getDirectory()).to.deep.equal(page.directory);
+    expect(messaging.getSyncPage.calledOnce).to.be.true;
+    expect(await service.getDirectory({ refreshOnline: true })).to.deep.equal(page.directory);
+    expect(changed.calledOnce).to.be.true;
+    expect(await service.getDirectory({ refreshOnline: true })).to.deep.equal([]);
+    expect(changed.calledTwice).to.be.true;
+
+    messaging.accountId.returns(undefined);
+    expect(await service.read()).to.deep.equal({ directory: null, messages: [] });
+    expect(await service.getDirectory()).to.be.null;
+    await service.refreshOnline();
+    expect(messaging.getSyncPage.callCount).to.equal(3);
+  });
+
   it('loads offline history and directory from local storage after a sync notification', async () => {
     session.isOnlineOnly.returns(false);
     const change = sinon.spy();

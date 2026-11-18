@@ -199,6 +199,35 @@ describe('MessagesContentComponent', () => {
     expect(markReadService.markAsRead.lastCall.args[0]).to.deep.equal([downloaded]);
   }));
 
+  it('keeps the requested account thread selected when an older request completes', fakeAsync(() => {
+    const first = 'org.couchdb.user:first';
+    const second = 'org.couchdb.user:second';
+    let resolveObsolete!: (threads: unknown[]) => void;
+    const obsolete = new Promise(resolve => resolveObsolete = resolve);
+    const setSelected = sinon.spy(MessagesActions.prototype, 'setSelectedConversation');
+    const setError = sinon.spy(MessagesActions.prototype, 'setMessagesError');
+
+    dataConversations.getConversations.returns(obsolete);
+    activatedRouteParams.next({ type_id: 'data:' + first });
+
+    dataConversations.getConversations.rejects(new Error('Unavailable'));
+    activatedRouteParams.next({ type_id: 'data:' + second });
+    tick();
+    expect(setError.lastCall.args[0]).to.be.true;
+
+    dataConversations.getConversations.resolves([]);
+    dataHistory.changes.next();
+    tick(100);
+    expect(setSelected.lastCall.args[0]).to.deep.equal({ id: second, type: 'data', messages: [] });
+    expect(setError.lastCall.args[0]).to.be.false;
+
+    setSelected.resetHistory();
+    resolveObsolete([{ id: first, name: 'First', messages: [] }]);
+    tick();
+    expect(setSelected.called).to.be.false;
+    expect(markReadService.markAsRead.called).to.be.false;
+  }));
+
   it('ngOnDestroy() should unsubscribe from observables', () => {
     const spySubscriptionsUnsubscribe = sinon.spy(component.subscriptions, 'unsubscribe');
 
