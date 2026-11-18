@@ -6,17 +6,17 @@ After initial login and sync, an Android user can compose offline and read downl
 
 ## How to deliver the work
 
-Implement the steps in order. Each step ends with a review check. Commit all changes, including tests and documentation, in small, reviewable increments. Give every commit a useful prefix and a short description of the change. Follow `AGENTS.md` and use the actual tracking issue number, for example `feat(#1234): filter data messages by participant` or `test(#1234): cover offline message retries`. Run the focused tests for the change and `npm run lint` before committing.
+Implement the steps in order. Each step ends with a review check. Commit all changes, including tests and documentation, in small, reviewable increments. Give every commit a useful prefix and a short description of the change. Follow `AGENTS.md` and use the actual name message-above, for example `feat(#message-above): filter data messages by participant` or `test(#message-above): cover offline message retries`. Run the focused tests for the change and `npm run lint` before committing.
 
 Create `MESS_DATA_IMPLEMENTATION.md` beside this plan in the first implementation commit. Update its corresponding step in the same commit whenever a change needs more detail. Record the contracts or design decisions a maintainer needs, affected entry points, verification commands and results, and any remaining limitation. Keep this plan as the checklist and commit subjects short.
 
 ### 1. Establish the account and configuration contract
 
 - Add a default-off data-messaging setting with configurable CHT role IDs for CRs, supervisors and officers. Configure pilot places by root place ID. Each root includes itself and its descendants. Use existing CHT account-to-place assignments, including multiple assigned places.
-- Use a stable account identifier for addressing. Verify its lifecycle before choosing the field. If a deleted username can be reused, persist a unique account-instance ID and resolve it from the authenticated session. A replacement account must never inherit the previous person's thread.
+- Use the existing CHT account ID (`org.couchdb.user:<username>`) for addressing and resolve the caller from the authenticated session. The deployment permanently reserves usernames by operating practice. Recreating a username would reuse its messaging identity and could expose the previous account's threads and cached data.
 - Before storing private records, map the server read and write routes in the implementation file. Start with `api/src/routing.js` and `api/src/middleware/authorization.js`. Online-only requests can go straight to CouchDB. Identify how every supported dashboard and replication route will enforce participant access while retaining existing administrator access. If the shared database cannot meet that requirement, resolve the storage design with the maintainer before proceeding.
 
-**Review check.** An existing configuration enables no data messaging. Tests distinguish a reassignment of the same account from a new account using a previous name. Review the route inventory before building on it.
+**Review check.** An existing configuration enables no data messaging. Tests verify that reassignment preserves the account ID and that account lookup is read-only. Review the route inventory before building on it.
 
 ### 2. Implement one recipient policy
 

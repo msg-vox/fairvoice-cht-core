@@ -1191,6 +1191,57 @@ describe('Users service', () => {
 
   });
 
+  describe('getMessagingAccount', () => {
+    const id = PREFIXES.COUCH_USER + 'researcher';
+
+    it('keeps the account ID after reassignment and reads all current places without writing', async () => {
+      const user = { _id: id, name: 'researcher', type: 'user', roles: ['cr'], facility_id: 'first' };
+      db.users.get.withArgs(id).resolves(user);
+      db.medic.get.withArgs(id).resolves({ facility_id: 'stale' });
+      const account = await service.getMessagingAccount(user.name);
+      chai.expect(account).to.deep.equal({ id, roles: ['cr'], facilityIds: ['first'] });
+      chai.expect(db.users.put.callCount).to.equal(0);
+      chai.expect(db.medic.put.callCount).to.equal(0);
+
+      sinon.stub(places, 'placesExist').resolves();
+      hasPermissions.returns(true);
+      db.users.put.resolves({});
+      db.medic.put.resolves({});
+      await service.updateUser(user.name, { place: ['second', 'third'] }, true);
+      db.users.get.withArgs(id).resolves(db.users.put.firstCall.args[0]);
+
+      chai.expect(await service.getMessagingAccount(user.name)).to.deep.equal({
+        ...account,
+        facilityIds: ['second', 'third'],
+      });
+      chai.expect(db.users.put.callCount).to.equal(1);
+      chai.expect(db.medic.put.callCount).to.equal(1);
+    });
+
+    it('returns no messaging account when the login or its settings are missing', async () => {
+      db.users.get.withArgs(id).rejects({ status: 404 });
+      db.medic.get.withArgs(id).resolves({});
+      chai.expect(await service.getMessagingAccount('researcher')).to.be.undefined;
+
+      db.users.get.withArgs(id).resolves({ _id: id });
+      db.medic.get.withArgs(id).rejects({ status: 404 });
+      chai.expect(await service.getMessagingAccount('researcher')).to.be.undefined;
+    });
+
+    it('returns no messaging account when its settings are inactive', async () => {
+      db.users.get.withArgs(id).resolves({ _id: id });
+      db.medic.get.withArgs(id).resolves({ inactive: true });
+      chai.expect(await service.getMessagingAccount('researcher')).to.be.undefined;
+    });
+
+    it('propagates database failures', async () => {
+      const error = new Error('Database unavailable');
+      db.users.get.withArgs(id).rejects(error);
+      db.medic.get.withArgs(id).resolves({});
+      await chai.expect(service.getMessagingAccount('researcher')).to.be.rejectedWith(error.message);
+    });
+  });
+
   describe('createPlace', () => {
     it('assigns new place', () => {
       sinon.stub(places, 'getOrCreatePlace').resolves({ _id: 'santos' });

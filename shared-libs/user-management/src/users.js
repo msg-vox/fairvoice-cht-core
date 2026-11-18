@@ -886,6 +886,24 @@ const getUserDoc = (username, dbName) => db[dbName]
 
 const getUserDocsByName = (name) => Promise.all(['users', 'medic'].map(dbName => getUserDoc(name, dbName)));
 
+const getMessagingAccount = async username => {
+  try {
+    const [user, settings] = await getUserDocsByName(username);
+    if (settings.inactive) {
+      return;
+    }
+    return {
+      id: user._id,
+      roles: user.roles,
+      facilityIds: forceArray(user.facility_id).filter(Boolean),
+    };
+  } catch (err) {
+    if (err.status !== 404) {
+      throw err;
+    }
+  }
+};
+
 const getUserSettings = async({ name }) => {
   const [ user, medicUser ] = await getUserDocsByName(name);
   Object.assign(medicUser, _.pick(user, 'name', 'roles', 'contact_id'));
@@ -1046,6 +1064,7 @@ module.exports = {
   },
   getUserDoc: (username) => getUserDoc(username, 'users'),
   getUserSettings,
+  getMessagingAccount,
   /**
    * Take the request data and create valid user, user-settings and contact
    * objects. Returns the response body in the callback.
