@@ -1,5 +1,8 @@
 declare module 'enketo-core/src/js/event' {
-  export default {
-    BeforeSave: () => CustomEvent
+  const events: {
+    AddRepeat: () => CustomEvent;
+    BeforeSave: () => CustomEvent;
+    ChangeLanguage: () => CustomEvent;
   };
+  export default events;
 }
