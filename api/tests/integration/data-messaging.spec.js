@@ -1,7 +1,11 @@
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
+const { readFileSync } = require('node:fs');
+const path = require('node:path');
 const express = require('express');
 const sinon = require('sinon');
+const { v7: uuid } = require('uuid');
+const config = require('../../src/config');
 const db = require('../../src/db');
 const migration = require('../../src/migrations/create-data-messaging-db');
 const environment = require('@medic/environment');
@@ -10,6 +14,7 @@ const { PREFIXES } = require('@medic/constants');
 const accountId = name => PREFIXES.COUCH_USER + name;
 const databasePath = `/${environment.db}-data-messaging`;
 const syncPath = '/api/v1/data-messaging/sync';
+const sendPath = '/api/v1/data-messaging/messages';
 const password = 'test-messaging-password';
 const sender = 'test-messaging-sender';
 const recipient = 'test-messaging-recipient';
@@ -47,6 +52,7 @@ const request = (origin, path, name, options = {}) => fetch(origin + path, {
 describe('Dedicated data messaging storage', () => {
   let server;
   let api;
+  let sms;
   const users = [];
   const couch = environment.serverUrlNoAuth;
 
@@ -71,6 +77,7 @@ describe('Dedicated data messaging storage', () => {
     const app = express();
     try {
       app.use(require('../../src/routing'));
+      sms = require('../../src/services/messaging');
     } finally {
       clock.restore();
     }
@@ -175,5 +182,127 @@ describe('Dedicated data messaging storage', () => {
     );
     const empty = await sync(api, sender, '?since=' + encodeURIComponent(last.next_since));
     assert.deepEqual(empty.messages, []);
+  });
+
+  describe('message uploads', () => {
+    const root = 'messaging-pilot';
+    const site = 'messaging-site';
+    const enabled = { enabled: true, pilot_root_place_ids: [root] };
+    const settings = { contact_types: [{ id: 'region' }, { id: 'site', parents: ['region'] }] };
+    const clinicalIds = [];
+    const compose = () => ({ ...message, _id: 'data-message:' + uuid() });
+    const upload = (doc, name = sender) => request(api, sendPath, name, {
+      method: 'POST',
+      body: JSON.stringify(doc),
+    });
+    let originalSettings;
+
+    before(async () => {
+      originalSettings = config.getAll();
+      for (const [name, place] of [[sender, site], [recipient, root]]) {
+        const login = await db.users.get(accountId(name));
+        await db.users.put({ ...login, facility_id: [place] });
+      }
+      const smsView = readFileSync(path.join(
+        __dirname, '../../../ddocs/medic-db/medic/views/messages_by_state/map.js'
+      ), 'utf8');
+      const results = await db.medic.bulkDocs([
+        { _id: root, type: 'contact', contact_type: 'region' },
+        { _id: site, type: 'contact', contact_type: 'site', parent: { _id: root } },
+        { _id: accountId(sender), type: 'user-settings' },
+        { _id: accountId(recipient), type: 'user-settings' },
+        { _id: '_design/medic', views: { messages_by_state: { map: smsView } } },
+        {
+          _id: 'pending-sms', type: 'data_record', reported_date: 100,
+          tasks: [{ state: 'pending', messages: [{ uuid: 'sms-id', to: '+1234567890', message: 'SMS' }] }],
+        },
+      ]);
+      clinicalIds.push(...results.filter(result => result.ok).map(result => result.id));
+      assert.equal(clinicalIds.length, results.length);
+    });
+
+    beforeEach(() => config.set({ ...settings, data_messaging: enabled }));
+
+    after(async () => {
+      config.set(originalSettings);
+      const docs = await Promise.all(clinicalIds.map(id => db.medic.get(id)));
+      await db.medic.bulkDocs(docs.map(({ _id, _rev }) => ({ _id, _rev, _deleted: true })));
+    });
+
+    it('validates the schema and text by Unicode code point, and creates no SMS work', async () => {
+      const doc = compose();
+      const outgoing = await sms.getOutgoingMessages();
+      assert.deepEqual(outgoing.map(sms => sms.id), ['sms-id']);
+      for (const fields of [
+        { text: ' \n\t' },
+        { text: '😀'.repeat(4001) },
+        { _id: 'data-message:invalid' },
+        { type: 'data_record' },
+        { recipient_id: 'not-an-account' },
+        { created_at: '100' },
+        { created_at: null },
+        { tasks: [] },
+        { scheduled_tasks: [] },
+        { _rev: '1-fake' },
+        { _deleted: true },
+      ]) {
+        assert.equal((await upload({ ...doc, ...fields })).status, 400, JSON.stringify(Object.keys(fields)));
+      }
+      assert.equal((await upload(doc, 'missing-messaging-user')).status, 401);
+      assert.equal((await upload(doc, unrelated)).status, 403);
+      await assert.rejects(db.dataMessaging.get(doc._id), { status: 404 });
+
+      doc.text = '😀'.repeat(4000);
+      const response = await upload(doc);
+      assert.equal(response.status, 201);
+      assert.deepEqual(await response.json(), { id: doc._id });
+      const { _rev, ...stored } = await db.dataMessaging.get(doc._id);
+      assert.match(_rev, /^1-/);
+      assert.deepEqual(stored, doc);
+      await assert.rejects(db.medic.get(doc._id), { status: 404 });
+      assert.deepEqual(await sms.getOutgoingMessages(), outgoing);
+    });
+
+    it('acknowledges a retry after reassignment or pilot disablement and rejects conflicting reuse', async () => {
+      const doc = {
+        ...compose(), sender_id: accountId(recipient), recipient_id: accountId(sender), text: '<b>Plain text</b>',
+      };
+      let initial = await sync(api, sender);
+      while (initial.has_more) {
+        initial = await sync(api, sender, '?since=' + encodeURIComponent(initial.next_since));
+      }
+      assert.equal((await upload(doc, recipient)).status, 201);
+
+      const login = await db.users.get(accountId(sender));
+      await db.users.put({ ...login, facility_id: [root] });
+      try {
+        assert.equal((await upload(doc, recipient)).status, 200);
+        const stale = { ...doc, _id: compose()._id };
+        assert.equal((await upload(stale, recipient)).status, 403);
+        await assert.rejects(db.dataMessaging.get(stale._id), { status: 404 });
+
+        config.set({ ...settings, data_messaging: { ...enabled, enabled: false } });
+        const retry = await upload(doc, recipient);
+        assert.equal(retry.status, 200);
+        assert.deepEqual(await retry.json(), { id: doc._id });
+        assert.equal((await upload({ ...doc, text: 'Changed' }, recipient)).status, 409);
+        assert.equal((await upload({ ...doc, recipient_id: accountId(unrelated) }, recipient)).status, 409);
+        const page = await sync(api, sender, '?since=' + encodeURIComponent(initial.next_since));
+        assert.deepEqual(page.messages, [{
+          _id: doc._id, sender_id: doc.sender_id, recipient_id: doc.recipient_id,
+          text: doc.text, created_at: doc.created_at,
+        }]);
+      } finally {
+        const current = await db.users.get(accountId(sender));
+        await db.users.put({ ...current, facility_id: login.facility_id });
+      }
+    });
+
+    it('acknowledges concurrent identical requests, with one canonical revision', async () => {
+      const doc = compose();
+      const responses = await Promise.all([upload(doc), upload(doc)]);
+      assert.deepEqual(responses.map(response => response.status).sort(), [200, 201]);
+      assert.match((await db.dataMessaging.get(doc._id))._rev, /^1-/);
+    });
   });
 });

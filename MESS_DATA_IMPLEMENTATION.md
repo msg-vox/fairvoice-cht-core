@@ -63,4 +63,5 @@ Online-only CHT requests can reach CouchDB views, changes, and other queries thr
 ### Verification
 
 - `COUCH_URL=http://medic:password@localhost:5984/medic COUCH_NODE_NAME=nonode@nohost npm run unit-api` passed all 1,710 tests and met coverage thresholds. The send tests include deterministic conflict handling and storage failure propagation.
+- `npm run integration-api` passed all 19 tests. The send cases cover online and offline accounts, schema and Unicode limits, a forged sender, reassignment and pilot disablement, concurrent retries, and the unchanged SMS gateway queue.
 - `npm run lint` passed ESLint and the blank-link check. ShellCheck reported the existing `SC2155` warning in `build-images.sh:8`. ESLint reported the existing unused directive in `api/tests/mocha/services/settings.spec.js`.
