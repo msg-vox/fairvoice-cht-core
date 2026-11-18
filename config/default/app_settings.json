@@ -63,11 +63,6 @@
   "contact_display_short": "clinic.name",
   "data_messaging": {
     "enabled": false,
-    "role_ids": {
-      "cr": [],
-      "supervisor": [],
-      "officer": []
-    },
     "pilot_root_place_ids": []
   },
   "roles": {

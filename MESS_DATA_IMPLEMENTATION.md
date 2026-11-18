@@ -4,23 +4,18 @@
 
 ### Configuration
 
-`data_messaging` is an application setting. Existing deployments without this key and the default application configuration both have messaging disabled. `api/src/services/data-messaging.js` requires the boolean `enabled: true`, at least one CR role ID, at least one supervisor or officer role ID, and at least one root place ID. Role IDs are keys under the CHT `roles` setting. The list fields accept arrays of nonblank strings. An invalid list is treated as empty.
+`data_messaging` is an application setting. Existing deployments without this key and the default application configuration both have messaging disabled. Enabling it requires the boolean `enabled: true` and at least one root place ID. `pilot_root_place_ids` accepts an array of nonblank strings. An invalid list is treated as empty.
 
 ```json
 {
   "data_messaging": {
     "enabled": false,
-    "role_ids": {
-      "cr": ["researcher"],
-      "supervisor": ["field_supervisor"],
-      "officer": ["program_officer"]
-    },
     "pilot_root_place_ids": ["example-pilot-place-id"]
   }
 }
 ```
 
-The pilot is the union of the specified places and their descendants. Evaluate each assignment against the current server hierarchy, starting the lineage with the assigned place itself. Walk the current parent relationships when checking eligibility. An embedded parent chain can lag behind a hierarchy move. `getMessagingAccount` reads roles and all assigned IDs from the live `_users` document and normalizes a legacy scalar `facility_id` to a list. The recipient policy in step 2 will consume these assignments. Keep `_users` assignment fields writable only by trusted account-management paths. [CHT multi-facility users](https://docs.communityhealthtoolkit.org/building/tutorials/multi-facility-users/)
+The pilot is the union of the specified places and their descendants. `getMessagingAccount` reads roles and all assigned IDs from the live `_users` document and normalizes a legacy scalar `facility_id` to a list. Keep `_users` assignment fields writable only by trusted account-management paths. [CHT multi-facility users](https://docs.communityhealthtoolkit.org/building/tutorials/multi-facility-users/)
 
 ### Account lifecycle
 
@@ -52,3 +47,10 @@ Review this inventory with the maintainer before building on shared storage. App
 - With `COUCH_URL=http://medic:password@localhost:5984/medic` and `COUCH_NODE_NAME=nonode@nohost`, `UNIT_TEST_ENV=1 npm test -w @medic/user-management` passed 281 tests and `npm run unit-api` passed 1,686 tests.
 - `npm run build-ddocs` passed. The compiled `_design/users` includes the existing views and has no messaging validator.
 - `npm run lint` reached ShellCheck and reported the existing `SC2155` in `build-images.sh:8`. ESLint and the blank-link check passed, with an existing ESLint warning in `api/tests/mocha/services/settings.spec.js`.
+
+## Step 2 — Recipient policy
+
+- `dataMessaging.canMessage(senderId, recipientId)` takes two CHT account IDs. It reads both active accounts and their current assignments on each call. Any one assignment pair qualifies if one place is a strict ancestor of the other and the path is inside a configured pilot root. The rule is symmetric and uses no role categories. Intermediate accounts can initiate conversations both up and down the same branch.
+- The policy loads current place documents through the CHT datasource, follows each immediate parent link and checks it against `contact_types[].parents`. Embedded ancestry can lag behind a move. Places on other branches, missing or invalid chains, and identical assigned places cannot establish eligibility.
+- Directory generation and send validation will call this policy in later steps. Callers must derive the sender ID from the authenticated session and deduplicate directory recipients by account ID. No messaging endpoint or storage is added in this step.
+- `COUCH_URL=http://medic:password@localhost:5984/medic COUCH_NODE_NAME=nonode@nohost npm run unit-api` passed all 1,704 tests. `npm run lint` reached the existing ShellCheck warning in `build-images.sh:8`.
