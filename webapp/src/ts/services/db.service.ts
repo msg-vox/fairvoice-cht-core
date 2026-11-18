@@ -157,12 +157,24 @@ export class DbService {
     return db;
   }
 
-  get({ remote=this.isOnlineOnly, meta=false, usersMeta=false }={}) {
-    const name = this.getDbName(remote, meta, usersMeta);
+  private open(name: string, options: typeof POUCHDB_OPTIONS.local | typeof POUCHDB_OPTIONS.remote) {
     if (!this.cache[name]) {
-      const db = window.PouchDB(name, this.getParams(remote, meta, usersMeta));
+      const db = window.PouchDB(name, options);
       this.cache[name] = this.wrapMethods(db);
     }
     return this.cache[name];
+  }
+
+  get({ remote=this.isOnlineOnly, meta=false, usersMeta=false }={}) {
+    return this.open(this.getDbName(remote, meta, usersMeta), this.getParams(remote, meta, usersMeta));
+  }
+
+  getMessaging() {
+    const username = this.sessionService.userCtx()?.name;
+    if (!username || this.sessionService.isOnlineOnly()) {
+      throw new Error('An offline-capable account is required to open the local messaging database');
+    }
+    const name = `${this.locationService.dbName}-data-messaging-${encodeURIComponent(username)}`;
+    return this.open(name, { ...POUCHDB_OPTIONS.local });
   }
 }
