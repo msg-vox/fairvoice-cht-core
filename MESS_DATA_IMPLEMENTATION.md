@@ -97,3 +97,4 @@ Online-only CHT requests can reach CouchDB views, changes, and other queries thr
 ### Verification
 
 - `npm run unit-api` passed 1,714 tests with the CouchDB unit-test environment documented above. `npm run integration-api` passed 20 tests, including the eligibility rejection response.
+- Browser tests with real PouchDB storage cover service restart, an interrupted upload, acknowledgement through history, another message following a terminal rejection, and replay after a partially saved page.
