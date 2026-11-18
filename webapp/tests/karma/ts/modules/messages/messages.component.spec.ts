@@ -8,7 +8,7 @@ import { Router } from '@angular/router';
 import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { Subject } from 'rxjs';
+import { of, Subject } from 'rxjs';
 
 import { MessagesComponent } from '@mm-modules/messages/messages.component';
 import { ChangesService } from '@mm-services/changes.service';
@@ -50,7 +50,7 @@ describe('Messages Component', () => {
   beforeEach(waitForAsync(() => {
     stopPerformanceTrackStub = sinon.stub();
     performanceService = { track: sinon.stub().returns({ stop: stopPerformanceTrackStub }) };
-    modalService = { show: sinon.stub() };
+    modalService = { show: sinon.stub().returns({ afterClosed: () => of(undefined) }) };
     dataHistory = { changes: new Subject(), refreshOnline: sinon.stub().resolves() };
     dataConversations = { getConversations: sinon.stub().resolves([]) };
     messageContactService = {
@@ -200,6 +200,16 @@ describe('Messages Component', () => {
     params.callbackOpenSendMessage();
     expect(modalService.show.calledOnce).to.be.true;
     expect(modalService.show.args[0][0]).to.equal(SendMessageComponent);
+    expect(modalService.show.args[0][1]).to.deep.equal({ data: { allowDataMessages: true } });
+  });
+
+  it('opens the account thread when the send modal reports a saved data message', async () => {
+    const id = 'org.couchdb.user:peer';
+    const navigate = sinon.stub(TestBed.inject(Router), 'navigate').resolves(true);
+    modalService.show.returns({ afterClosed: () => of(id) });
+    await component.updateConversations();
+    fastActionButtonService.getMessageActions.lastCall.args[0].callbackOpenSendMessage();
+    expect(navigate.calledOnceWithExactly(['/messages', 'data:' + id])).to.be.true;
   });
 
   describe('updateConversations()', () => {

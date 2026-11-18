@@ -1,15 +1,19 @@
 <mm-modal-layout
   id="send-message"
-  [processing]="processing"
+  [processing]="processing || !!dataComposer?.sending"
   [error]="errors.submit"
   [titleKey]="'Send Message'"
-  [submitKey]="'Send'"
+  [submitKey]="dataMode === false ? 'Send' : undefined"
   [submittingKey]="'Sending'"
   [isFlatButton]="true"
   (onCancel)="close()"
   (onSubmit)="submit()"
 >
-  <form action="" method="POST" class="message-form">
+  @if ((dataMode === undefined && !errors.submit) || dataDirectoryLoading) {
+    <div class="loader" role="status" [attr.aria-label]="'messages.data.loading_recipients' | translate"></div>
+  }
+
+  <form action="" method="POST" class="message-form" [hidden]="dataMode !== false">
     <div class="form-group" [ngClass]="{ 'has-error': errors.phone }">
       <select class="form-control" id="send-message-phone" name="phone" autocomplete="off" multiple="multiple"></select>
       <span class="help-block" *ngIf="errors.phone">{{ errors.phone }}</span>
@@ -26,4 +30,37 @@
       <span class="count"></span>
     </div>
   </form>
+
+  @if (dataMode && !dataDirectoryLoading) {
+    @if (dataDirectoryError) {
+      <p class="alert alert-danger" role="alert">{{ 'messages.data.directory_error' | translate }}</p>
+    } @else if (dataRecipients === null) {
+      <p role="status">{{ 'messages.data.directory_pending' | translate }}</p>
+    } @else if (!dataRecipients.length) {
+      <p role="status">{{ 'messages.data.no_recipients' | translate }}</p>
+    }
+
+    @if (dataRecipients?.length) {
+      <div class="form-group">
+        <label for="send-message-account">{{ 'messages.data.choose_recipient' | translate }}</label>
+        <select id="send-message-account" class="form-control"
+                [(ngModel)]="dataRecipientId" [disabled]="!!dataComposer?.sending">
+          <option value="" disabled>{{ 'messages.data.choose_recipient' | translate }}</option>
+          @for (recipient of dataRecipients; track recipient.id) {
+            <option [value]="recipient.id">{{ recipient.label }}</option>
+          }
+        </select>
+      </div>
+    }
+
+    @if (dataRecipientId) {
+      @if (!canSendData && dataRecipients?.length) {
+        <p role="status">{{ 'messages.data.delivery.recipient_ineligible' | translate }}</p>
+      }
+      <mm-data-message-composer [recipientId]="dataRecipientId" draftId="send-data-message-draft"
+                                [disabled]="!canSendData" [preserveDraft]="true" [showDeliveryStatus]="false"
+                                (submitted)="dataMessageSubmitted($event.message.recipient_id)">
+      </mm-data-message-composer>
+    }
+  }
 </mm-modal-layout>

@@ -77,11 +77,14 @@
       </div>
 
       @if (selectedConversation.type === dataConversationType) {
-        @if (!selectedConversation.recipient) {
-          <p class="alert alert-info" role="status">{{ 'messages.data.reply_unavailable' | translate }}</p>
-        }
-        <mm-data-message-composer class="reply" mmAuth="can_edit" [recipientId]="selectedConversation.id"
-                                  [disabled]="!selectedConversation.recipient"></mm-data-message-composer>
+        <div class="data-message-reply">
+          @if (!selectedConversation.recipient) {
+            <p class="alert alert-info" role="status">{{ 'messages.data.reply_unavailable' | translate }}</p>
+          }
+          <mm-data-message-composer mmAuth="can_edit" [recipientId]="selectedConversation.id"
+                                    [disabled]="!selectedConversation.recipient" [showDeliveryStatus]="false">
+          </mm-data-message-composer>
+        </div>
       }
 
       <div

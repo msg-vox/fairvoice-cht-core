@@ -5,6 +5,7 @@ import sinon from 'sinon';
 import { DataMessageComposerComponent } from '@mm-modules/messages/data-message-composer.component';
 import { DataMessagingService } from '@mm-services/data-messaging.service';
 import { DataMessagingStoreService } from '@mm-services/data-messaging-store.service';
+import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
 
 describe('Data message composer', () => {
   const sender_id = 'org.couchdb.user:sender';
@@ -15,16 +16,19 @@ describe('Data message composer', () => {
   let component: DataMessageComposerComponent;
   let submit: sinon.SinonStub;
   let compose: sinon.SinonStub;
+  let getDirectory: sinon.SinonStub;
   const feedback = (role: string) => fixture.nativeElement.querySelector(`[role="${role}"]`).textContent;
 
   beforeEach(() => {
     submit = sinon.stub();
     compose = sinon.stub().returns(message);
+    getDirectory = sinon.stub().resolves([{ account_id: recipient_id }]);
     TestBed.configureTestingModule({
       imports: [TranslateModule.forRoot()],
       providers: [
         { provide: DataMessagingStoreService, useValue: { submit } },
         { provide: DataMessagingService, useValue: { compose, accountId: () => sender_id } },
+        { provide: DataMessagingHistoryService, useValue: { getDirectory } },
       ],
     });
     fixture = TestBed.createComponent(DataMessageComposerComponent);
@@ -62,6 +66,24 @@ describe('Data message composer', () => {
     expect(component.draft).to.equal('');
     expect(compose.calledOnceWithExactly(recipient_id, text)).to.equal(true);
     expect(submit.args).to.deep.equal([[message], [message]]);
+    expect(getDirectory.calledOnceWithExactly({ refreshOnline: true })).to.be.true;
     expect(feedback('status')).to.include('messages.data.delivery.sent');
+  });
+
+  it('rechecks eligibility for a new reply and keeps the draft if the peer has left the directory', async () => {
+    getDirectory.resolves([]);
+    await component.submit();
+    fixture.detectChanges();
+
+    expect(component.draft).to.equal(text);
+    expect(feedback('alert')).to.include('messages.data.delivery.recipient_ineligible');
+    expect(compose.called).to.be.false;
+    expect(submit.called).to.be.false;
+  });
+
+  it('clears the old thread draft when its recipient changes', () => {
+    fixture.componentRef.setInput('recipientId', 'org.couchdb.user:other');
+    fixture.detectChanges();
+    expect(component.draft).to.equal('');
   });
 });

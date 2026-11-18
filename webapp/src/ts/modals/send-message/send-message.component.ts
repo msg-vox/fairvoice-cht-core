@@ -1,4 +1,5 @@
-import { AfterViewInit, Component, Inject } from '@angular/core';
+import { AfterViewInit, Component, DestroyRef, Inject, ViewChild } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import * as phoneNumber from '@medic/phone-number';
 import { filter as _filter, map as _map, partial as _partial } from 'lodash-es';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
@@ -13,6 +14,9 @@ import { ModalLayoutComponent } from '@mm-components/modal-layout/modal-layout.c
 import { FormsModule } from '@angular/forms';
 import { NgClass, NgIf } from '@angular/common';
 import { TranslatePipe } from '@ngx-translate/core';
+import { PREFIXES } from '@medic/constants';
+import { DataMessageComposerComponent } from '@mm-modules/messages/data-message-composer.component';
+import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
 
 @Component({
   selector: 'send-message',
@@ -23,13 +27,21 @@ import { TranslatePipe } from '@ngx-translate/core';
     NgClass,
     NgIf,
     TranslatePipe,
+    DataMessageComposerComponent,
   ],
 })
 export class SendMessageComponent implements AfterViewInit {
   static id = 'send-message-modal';
 
+  @ViewChild(DataMessageComposerComponent) dataComposer?: DataMessageComposerComponent;
   messageInput;
   processing = false;
+  dataMode?: boolean;
+  dataRecipientId = '';
+  dataRecipients: { id: string; label: string }[] | null = null;
+  dataDirectoryError = false;
+  dataDirectoryLoading = false;
+  private dataDirectoryRequest = 0;
   errors: Record<string, any> = {
     message: false,
     phone: false,
@@ -44,15 +56,75 @@ export class SendMessageComponent implements AfterViewInit {
     private select2SearchService: Select2SearchService,
     private translateService:TranslateService,
     private matDialogRef: MatDialogRef<SendMessageComponent>,
+    private dataHistory: DataMessagingHistoryService,
+    private destroyRef: DestroyRef,
     @Inject(MAT_DIALOG_DATA) private matDialogData: Message,
   ) {
     this.messageInput = this.matDialogData?.message;
+    this.dataMode = this.matDialogData?.allowDataMessages ? undefined : false;
   }
 
-  ngAfterViewInit(): void {
+  async ngAfterViewInit(): Promise<void> {
+    if (this.matDialogData?.allowDataMessages) {
+      try {
+        const settings = await this.settingsService.get();
+        if (this.destroyRef.destroyed) {
+          return;
+        }
+        this.dataMode = settings?.data_messaging?.enabled === true;
+      } catch {
+        if (!this.destroyRef.destroyed) {
+          this.errors.submit = 'Error retrieving settings';
+        }
+        return;
+      }
+
+      if (this.dataMode) {
+        this.dataHistory.changes.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+          void this.loadDataDirectory();
+        });
+        this.dataDirectoryLoading = true;
+        void this.loadDataDirectory(true);
+        return;
+      }
+    }
+
     const phoneField = $('.message-form #send-message-phone');
     $('.message-form .count').text('');
-    this.initPhoneField(phoneField, this.matDialogData?.to);
+    void this.initPhoneField(phoneField, this.matDialogData?.to);
+  }
+
+  get canSendData(): boolean {
+    return !!this.dataRecipients?.some(entry => entry.id === this.dataRecipientId);
+  }
+
+  private async loadDataDirectory(refreshOnline = false) {
+    const request = ++this.dataDirectoryRequest;
+    try {
+      const entries = await this.dataHistory.getDirectory({ refreshOnline });
+      if (this.destroyRef.destroyed || request !== this.dataDirectoryRequest) {
+        return;
+      }
+      const labels = new Map<string, number>();
+      const recipients = entries?.map(({ account_id, display_name, role_label, place_label }) => {
+        const label = [display_name || account_id, role_label, place_label].filter(Boolean).join(' · ');
+        labels.set(label, (labels.get(label) || 0) + 1);
+        return { id: account_id, label };
+      });
+      this.dataRecipients = recipients?.map(({ id, label }) => ({
+        id,
+        label: labels.get(label)! > 1 ? `${label} (${id.slice(PREFIXES.COUCH_USER.length)})` : label,
+      })).sort((a, b) => a.label.localeCompare(b.label)) ?? null;
+      this.dataDirectoryError = false;
+    } catch {
+      if (!this.destroyRef.destroyed && request === this.dataDirectoryRequest) {
+        this.dataDirectoryError = true;
+      }
+    } finally {
+      if (!this.destroyRef.destroyed && request === this.dataDirectoryRequest) {
+        this.dataDirectoryLoading = false;
+      }
+    }
   }
 
   private validateMessage(message) {
@@ -203,10 +275,17 @@ export class SendMessageComponent implements AfterViewInit {
     this.matDialogRef.close();
   }
 
+  dataMessageSubmitted(recipientId: string) {
+    this.matDialogRef.close(recipientId);
+  }
+
   submit() {
+    if (this.dataMode !== false || this.processing) {
+      return;
+    }
     this.processing = true;
 
-    this.settingsService
+    return this.settingsService
       .get()
       .then((settings) => {
         const message = this.messageInput?.trim();
@@ -236,4 +315,5 @@ interface Message {
   to: string;
   message: string;
   phone: string;
+  allowDataMessages?: boolean;
 }

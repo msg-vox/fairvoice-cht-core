@@ -1,7 +1,7 @@
 <form class="data-message-composer" (ngSubmit)="submit()">
   <div class="form-group">
-    <label for="data-message-draft" class="sr-only">{{ 'messages.data.draft' | translate }}</label>
-    <textarea id="data-message-draft" class="form-control" name="draft"
+    <label [attr.for]="draftId()" class="sr-only">{{ 'messages.data.draft' | translate }}</label>
+    <textarea [id]="draftId()" class="form-control" name="draft" rows="3"
               [(ngModel)]="draft" [disabled]="disabled()" [readonly]="sending"
               (ngModelChange)="feedback = undefined"></textarea>
   </div>
@@ -9,7 +9,9 @@
     {{ 'Send' | translate }}
   </button>
   @if (feedback === 'waiting' || feedback === 'sent') {
-    <p role="status">{{ ('messages.data.delivery.' + feedback) | translate }}</p>
+    @if (showDeliveryStatus()) {
+      <p role="status">{{ ('messages.data.delivery.' + feedback) | translate }}</p>
+    }
   } @else if (feedback) {
     <p role="alert">{{ ('messages.data.delivery.' + feedback) | translate }}</p>
   }

@@ -1,6 +1,6 @@
 import { Component, NgZone, OnDestroy, OnInit } from '@angular/core';
 import { find as _find, isEqual as _isEqual, last as _last } from 'lodash-es';
-import { combineLatest, debounceTime, fromEvent, merge, Subscription, timer } from 'rxjs';
+import { combineLatest, debounceTime, fromEvent, merge, Subscription, take, timer } from 'rxjs';
 import { DOC_TYPES } from '@medic/constants';
 import { Store } from '@ngrx/store';
 import { Router, RouterLink, RouterOutlet } from '@angular/router';
@@ -216,7 +216,14 @@ export class MessagesComponent implements OnInit, OnDestroy {
     }
 
     this.fastActionList = await this.fastActionButtonService.getMessageActions({
-      callbackOpenSendMessage: () => this.modalService.show(SendMessageComponent),
+      callbackOpenSendMessage: () => {
+        const modal = this.modalService.show(SendMessageComponent, { data: { allowDataMessages: true } });
+        this.subscriptions.add(modal.afterClosed().pipe(take(1)).subscribe(recipientId => {
+          if (recipientId) {
+            void this.router.navigate(['/messages', `${DATA_CONVERSATION}:${recipientId}`]);
+          }
+        }));
+      },
     });
   }
 

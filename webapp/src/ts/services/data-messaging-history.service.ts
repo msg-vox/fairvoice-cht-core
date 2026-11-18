@@ -90,6 +90,22 @@ export class DataMessagingHistoryService {
     await history.refresh;
   }
 
+  async getDirectory({ refreshOnline = false } = {}): Promise<DataMessagingDirectory | null> {
+    const accountId = this.messaging.accountId();
+    if (!accountId) {
+      return null;
+    }
+    if (!this.session.isOnlineOnly()) {
+      return this.directory.getDirectory();
+    }
+    const history = this.getOnlineHistory(accountId);
+    if (refreshOnline || !history.since) {
+      await this.refreshOnline();
+    }
+    this.checkAccount(accountId);
+    return history.directory;
+  }
+
   private async download(history: OnlineHistory): Promise<void> {
     let changed = false;
     try {
