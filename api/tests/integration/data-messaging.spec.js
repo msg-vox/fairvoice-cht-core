@@ -285,7 +285,9 @@ describe('Dedicated data messaging storage', () => {
       try {
         assert.equal((await upload(doc, recipient)).status, 200);
         const stale = { ...doc, _id: compose()._id };
-        assert.equal((await upload(stale, recipient)).status, 403);
+        const rejection = await upload(stale, recipient);
+        assert.equal(rejection.status, 403);
+        assert.equal((await rejection.json()).details, 'recipient_ineligible');
         await assert.rejects(db.dataMessaging.get(stale._id), { status: 404 });
 
         config.set({ ...settings, data_messaging: { ...enabled, enabled: false } });

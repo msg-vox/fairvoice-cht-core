@@ -5,7 +5,7 @@ const db = require('../db');
 const { BadRequestError, ConflictError, PermissionError } = require('../errors');
 const dataContext = require('./data-context');
 const { Place, Qualifier } = require('@medic/cht-datasource');
-const { DATA_MESSAGE_TEXT_LIMIT, DOC_TYPES, PREFIXES } = require('@medic/constants');
+const { DATA_MESSAGE_RECIPIENT_INELIGIBLE, DATA_MESSAGE_TEXT_LIMIT, DOC_TYPES, PREFIXES } = require('@medic/constants');
 const { getContactType, isParentOf } = require('@medic/contact-types-utils');
 const { validate: isUuid } = require('uuid');
 const { users } = require('@medic/user-management')(config, db, dataContext);
@@ -254,7 +254,9 @@ const send = async (accountId, message) => {
     return acknowledgeRetry(stored, message);
   }
   if (!await canMessage(accountId, message.recipient_id)) {
-    throw new PermissionError('Data message recipient is not currently eligible');
+    throw Object.assign(new PermissionError('Data message recipient is not currently eligible'), {
+      details: DATA_MESSAGE_RECIPIENT_INELIGIBLE,
+    });
   }
 
   try {

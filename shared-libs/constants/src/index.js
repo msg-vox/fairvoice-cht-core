@@ -65,6 +65,7 @@ const DB_ADMIN_ROLES = [USER_ROLES.ADMIN, USER_ROLES.COUCHDB_ADMIN];
 // Maximum HTTP request body size in bytes, shared by the api body parsers and streaming routes.
 const MAX_REQUEST_SIZE = 32 * 1024 * 1024;
 const DATA_MESSAGE_TEXT_LIMIT = 4000;
+const DATA_MESSAGE_RECIPIENT_INELIGIBLE = 'recipient_ineligible';
 
 // Name of the attachment on archive job docs carrying the newline-separated doc ids.
 const ARCHIVE_IDS_ATTACHMENT = 'ids';
@@ -91,5 +92,6 @@ module.exports = {
   PREFIXES,
   MAX_REQUEST_SIZE,
   DATA_MESSAGE_TEXT_LIMIT,
+  DATA_MESSAGE_RECIPIENT_INELIGIBLE,
   ARCHIVE_IDS_ATTACHMENT,
 };

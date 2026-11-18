@@ -85,3 +85,13 @@ Online-only CHT requests can reach CouchDB views, changes, and other queries thr
 - With Chrome for Testing as `CHROME_BIN`, `npm --prefix webapp run unit -- --watch=false --browsers=ChromeHeadlessCI --code-coverage=false --include=../tests/karma/ts/services/data-messaging-directory.service.spec.ts --include=../tests/karma/ts/services/db.service.spec.ts` passed all 43 focused tests. The directory tests use real browser PouchDB storage and cover restart, full replacement, failed refresh, account switching, and the online-only path.
 - The full WebApp Karma run with `npm --prefix webapp run unit -- --watch=false --browsers=ChromeHeadlessCI` passed 3,259 tests and met coverage thresholds. It reproduced the same 19 failures as Step 4.
 - `npm run lint` passed ESLint and the blank-link check. ShellCheck reported the existing `SC2155` in `build-images.sh:8`, and ESLint reported the existing unused directive in `api/tests/mocha/services/settings.spec.js`.
+
+## Step 6 — Offline outbox and history sync
+
+- `DataMessagingStoreService.submit` saves an immutable message and its initial delivery state together in the account’s messaging database for offline-capable accounts. The local outbox record keeps delivery metadata outside the message sent to the API. Online-only accounts submit directly and receive a sent result only when the API confirms the original ID.
+- Accepted history uses canonical message IDs. The local store combines history and outbox records for callers and deduplicates exact matches. A conflicting canonical message can coexist with a rejected local attempt so the sender still has its text.
+- The send endpoint supplies `details: "recipient_ineligible"` with HTTP 403 for an eligibility rejection. The existing session and sender checks still return their own errors.
+
+### Verification
+
+- `npm run unit-api` passed 1,714 tests with the CouchDB unit-test environment documented above. `npm run integration-api` passed 20 tests, including the eligibility rejection response.
