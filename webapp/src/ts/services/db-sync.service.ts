@@ -14,6 +14,7 @@ import { TranslateService } from '@mm-services/translate.service';
 import { MigrationsService } from '@mm-services/migrations.service';
 import { ReplicationService } from '@mm-services/replication.service';
 import { PerformanceService } from '@mm-services/performance.service';
+import { DataMessagingStoreService } from '@mm-services/data-messaging-store.service';
 import { DataMessagingSyncService } from '@mm-services/data-messaging-sync.service';
 import { DOC_IDS, DOC_TYPES } from '@medic/constants';
 
@@ -34,6 +35,7 @@ const SYNC_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const META_SYNC_INTERVAL = 30 * 60 * 1000; // 30 minutes
 const BATCH_SIZE = 100;
 const MAX_SUCCESSIVE_SYNCS = 2;
+const warnDataMessagingSyncFailure = () => console.warn('Data messaging sync did not complete');
 
 const readOnlyFilter = function(doc) {
   // Never replicate "purged" documents upwards
@@ -91,8 +93,10 @@ export class DBSyncService {
     private migrationsService:MigrationsService,
     private replicationService:ReplicationService,
     private dataMessagingSync:DataMessagingSyncService,
+    dataMessagingStore:DataMessagingStoreService,
   ) {
     this.globalActions = new GlobalActions(this.store);
+    dataMessagingStore.queued.subscribe(accountId => this.requestDataMessagingSync(accountId));
   }
 
   private globalActions: GlobalActions;
@@ -323,7 +327,11 @@ export class DBSyncService {
   }
 
   private syncDataMessages() {
-    void this.dataMessagingSync.sync().catch(() => console.warn('Data messaging sync did not complete'));
+    void this.dataMessagingSync.sync().catch(warnDataMessagingSyncFailure);
+  }
+
+  private requestDataMessagingSync(accountId?: string) {
+    void this.dataMessagingSync.requestSync(() => this.knownOnlineState, accountId).catch(warnDataMessagingSyncFailure);
   }
 
   private startMessagingInterval() {
@@ -371,7 +379,7 @@ export class DBSyncService {
 
       if (this.knownOnlineState && this.isEnabled()) {
         this.startMessagingInterval();
-        this.syncDataMessages();
+        this.requestDataMessagingSync();
         if (!this.syncIsRecent) {
           return this.startSyncMedic();
         }

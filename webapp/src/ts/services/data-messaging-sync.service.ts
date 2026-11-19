@@ -5,15 +5,33 @@ import { DataMessagingService, getDataMessageRejection } from '@mm-services/data
 import { DataMessagingLocalStore, DataMessagingStoreService } from '@mm-services/data-messaging-store.service';
 import { SessionService } from '@mm-services/session.service';
 
+type AccountSync = { run: Promise<void>; followUp?: Promise<void> };
+
 @Injectable({ providedIn: 'root' })
 export class DataMessagingSyncService {
-  private readonly inProgress = new Map<string, Promise<void>>();
+  private readonly inProgress = new Map<string, AccountSync>();
 
   constructor(
     private messaging: DataMessagingService,
     private storage: DataMessagingStoreService,
     private session: SessionService,
   ) {}
+
+  async requestSync(isOnline: () => boolean, accountId = this.messaging.accountId()): Promise<void> {
+    if (!accountId || !isOnline() || accountId !== this.messaging.accountId() || this.session.isOnlineOnly()) {
+      return;
+    }
+    const running = this.inProgress.get(accountId);
+    if (!running) {
+      return this.sync();
+    }
+    const followUp = () => {
+      if (isOnline() && accountId === this.messaging.accountId()) {
+        return this.sync();
+      }
+    };
+    return running.followUp ??= running.run.then(followUp, followUp);
+  }
 
   async sync(): Promise<void> {
     const accountId = this.messaging.accountId();
@@ -22,13 +40,13 @@ export class DataMessagingSyncService {
     }
     const running = this.inProgress.get(accountId);
     if (running) {
-      return running;
+      return running.run;
     }
     const run = this.syncAccount(this.storage.open()).finally(() => {
       this.inProgress.delete(accountId);
       this.storage.notifyChange(accountId);
     });
-    this.inProgress.set(accountId, run);
+    this.inProgress.set(accountId, { run });
     return run;
   }
 

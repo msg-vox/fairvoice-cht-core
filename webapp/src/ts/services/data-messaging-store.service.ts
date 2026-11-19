@@ -114,7 +114,9 @@ export class DataMessagingLocalStore {
 @Injectable({ providedIn: 'root' })
 export class DataMessagingStoreService {
   private readonly updates = new Subject<{ accountId: string; accepted?: DataMessage }>();
+  private readonly outboxSaves = new Subject<string>();
   readonly changes = this.updates.asObservable();
+  readonly queued = this.outboxSaves.asObservable();
 
   constructor(
     private session: SessionService,
@@ -145,6 +147,9 @@ export class DataMessagingStoreService {
     }
     const delivery = await this.open().enqueue(message);
     this.notifyChange(message.sender_id);
+    if (delivery === 'waiting') {
+      this.outboxSaves.next(message.sender_id);
+    }
     return delivery;
   }
 }

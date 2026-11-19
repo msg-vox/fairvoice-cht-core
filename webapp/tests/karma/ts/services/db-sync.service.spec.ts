@@ -3,6 +3,7 @@ import sinon from 'sinon';
 import { expect } from 'chai';
 import { Store } from '@ngrx/store';
 import { DOC_IDS, DOC_TYPES } from '@medic/constants';
+import { Subject } from 'rxjs';
 
 import { SessionService } from '@mm-services/session.service';
 import { RulesEngineService } from '@mm-services/rules-engine.service';
@@ -16,6 +17,7 @@ import { PerformanceService } from '@mm-services/performance.service';
 import { TranslateService } from '@mm-services/translate.service';
 import { MigrationsService } from '@mm-services/migrations.service';
 import { ReplicationService } from '@mm-services/replication.service';
+import { DataMessagingStoreService } from '@mm-services/data-messaging-store.service';
 import { DataMessagingSyncService } from '@mm-services/data-messaging-sync.service';
 
 describe('DBSync service', () => {
@@ -42,6 +44,8 @@ describe('DBSync service', () => {
   let migrationService;
   let replicationService;
   let syncDataMessages;
+  let requestDataMessagingSync: sinon.SinonStub;
+  let queued: Subject<string>;
   let store;
 
   let localMedicDb;
@@ -126,6 +130,8 @@ describe('DBSync service', () => {
     migrationService = { runMigrations: sinon.stub().resolves() };
     replicationService = { replicateFrom: sinon.stub() };
     syncDataMessages = sinon.stub().resolves();
+    requestDataMessagingSync = sinon.stub().resolves();
+    queued = new Subject<string>();
 
     TestBed.configureTestingModule({
       providers: [
@@ -141,7 +147,11 @@ describe('DBSync service', () => {
         { provide: CheckDateService, useValue: checkDateService },
         { provide: MigrationsService, useValue: migrationService },
         { provide: ReplicationService, useValue: replicationService },
-        { provide: DataMessagingSyncService, useValue: { sync: syncDataMessages } },
+        { provide: DataMessagingStoreService, useValue: { queued } },
+        {
+          provide: DataMessagingSyncService,
+          useValue: { sync: syncDataMessages, requestSync: requestDataMessagingSync },
+        },
       ]
     });
 
@@ -385,7 +395,9 @@ describe('DBSync service', () => {
       // when you come back online eventually, sync immediately
       service.setOnlineStatus(true);
       expectSyncCall(1);
-      expect(syncDataMessages.callCount).to.equal(2);
+      expect(requestDataMessagingSync.callCount).to.equal(1);
+      expect(requestDataMessagingSync.firstCall.args[0]()).to.equal(true);
+      expect(syncDataMessages.callCount).to.equal(1);
 
       // wait for the inprogress sync to complete before continuing the test
       await service.sync();
@@ -396,14 +408,30 @@ describe('DBSync service', () => {
       service.setOnlineStatus(false);
       service.setOnlineStatus(true);
       expectSyncCall(2);
-      expect(syncDataMessages.callCount).to.equal(4);
+      expect(requestDataMessagingSync.callCount).to.equal(2);
+      expect(syncDataMessages.callCount).to.equal(2);
 
       // eventually, sync on the timer
       clock.tick(5 * 60 * 1000 + 1);
       await nextTick();
 
       expectSyncCall(3);
-      expect(syncDataMessages.callCount).to.equal(5);
+      expect(syncDataMessages.callCount).to.equal(3);
+    });
+
+    it('requests messaging sync as soon as a message is queued', () => {
+      const accountId = 'org.couchdb.user:sender';
+      queued.next(accountId);
+
+      expect(requestDataMessagingSync).to.have.been.calledOnceWithExactly(sinon.match.func, accountId);
+      const [isOnline] = requestDataMessagingSync.firstCall.args;
+      expect(isOnline()).to.equal(true);
+      expectSyncCall(0);
+      expectSyncMetaCall(0);
+      expect(migrationService.runMigrations).to.not.have.been.called;
+
+      service.setOnlineStatus(false);
+      expect(isOnline()).to.equal(false);
     });
 
     it('runs messaging on manual sync without treating messaging failure as a clinical failure', async () => {

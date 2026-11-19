@@ -26,6 +26,7 @@ describe('Data messaging sync', () => {
   let db;
   let pouch;
   let getMessaging: sinon.SinonStub;
+  let userCtx: sinon.SinonStub;
   let http: HttpTestingController;
   let api: DataMessagingService;
   let storage: DataMessagingStoreService;
@@ -43,11 +44,12 @@ describe('Data messaging sync', () => {
     dbName = 'message-sync-test-' + uuid();
     db = pouch(dbName);
     getMessaging = sinon.stub().callsFake(() => db);
+    userCtx = sinon.stub().returns({ name: 'sender' });
     onlineOnly = false;
     TestBed.configureTestingModule({ providers: [
       provideHttpClient(),
       provideHttpClientTesting(),
-      { provide: SessionService, useValue: { userCtx: () => ({ name: 'sender' }), isOnlineOnly: () => onlineOnly } },
+      { provide: SessionService, useValue: { userCtx, isOnlineOnly: () => onlineOnly } },
       { provide: DbService, useValue: { getMessaging } },
     ] });
     http = TestBed.inject(HttpTestingController);
@@ -80,6 +82,114 @@ describe('Data messaging sync', () => {
     directory,
     next_since,
     has_more,
+  });
+
+  it('requests an upload after saving locally and finishes submitting while the upload is pending', async () => {
+    const message = api.compose(recipient, 'Connected send');
+    const requestSync = sinon.spy(sync, 'requestSync');
+    storage.queued.subscribe(id => void sync.requestSync(() => true, id));
+
+    const submit = storage.submit(message);
+    expect(requestSync).to.not.have.been.called;
+    expect(await submit).to.equal('waiting');
+    expect(requestSync).to.have.been.calledOnceWithExactly(sinon.match.func, account_id);
+
+    const upload = await nextRequest(sendPath);
+    expect(await storage.open().getPending()).to.deep.equal([message]);
+    expect(upload.request.body).to.deep.equal(message);
+    upload.flush({ id: message._id });
+    (await nextRequest(syncPath)).flush(page([], '0'));
+    await requestSync.firstCall.returnValue;
+
+    expect(await storage.open().getPending()).to.deep.equal([]);
+    expect(requestSync).to.have.been.calledOnce;
+  });
+
+  it('keeps a disconnected send in the outbox until reconnect', async () => {
+    let connected = false;
+    const message = api.compose(recipient, 'Disconnected send');
+    storage.queued.subscribe(id => void sync.requestSync(() => connected, id));
+
+    expect(await storage.submit(message)).to.equal('waiting');
+    expect(await storage.open().getPending()).to.deep.equal([message]);
+    http.expectNone(sendPath);
+    http.expectNone(syncPath);
+
+    connected = true;
+    const reconnect = sync.requestSync(() => connected);
+    const upload = await nextRequest(sendPath);
+    expect(upload.request.body).to.deep.equal(message);
+    upload.flush({ id: message._id });
+    (await nextRequest(syncPath)).flush(page([], '0'));
+    await reconnect;
+    expect(await storage.open().getPending()).to.deep.equal([]);
+  });
+
+  for (const fails of [false, true]) {
+    it(`runs one follow-up for multiple sends when the active sync ${fails ? 'fails' : 'succeeds'}`, async () => {
+      const run = sync.sync();
+      const outcome = fails ? expect(run).to.be.rejected : run;
+      const download = await nextRequest(syncPath);
+      const first = api.compose(recipient, 'First send during sync');
+      const second = api.compose(recipient, 'Second send during sync');
+
+      await storage.submit(first);
+      const firstRequest = sync.requestSync(() => true, account_id);
+      await storage.submit(second);
+      const secondRequest = sync.requestSync(() => true, account_id);
+      http.expectNone(sendPath);
+      const open = sinon.spy(storage, 'open');
+
+      if (fails) {
+        download.flush({}, { status: 503, statusText: 'Service Unavailable' });
+      } else {
+        download.flush(page([], '0'));
+      }
+      for (const message of [first, second]) {
+        const upload = await nextRequest(sendPath);
+        expect(upload.request.body).to.deep.equal(message);
+        upload.flush({ id: message._id });
+      }
+      (await nextRequest(syncPath)).flush(page([], '1-test'));
+      await Promise.all([outcome, firstRequest, secondRequest]);
+
+      expect(open).to.have.been.calledOnce;
+      expect(await storage.open().getPending()).to.deep.equal([]);
+    });
+  }
+
+  it('rechecks connectivity before running a deferred sync', async () => {
+    let connected = true;
+    const run = sync.sync();
+    const download = await nextRequest(syncPath);
+    const message = api.compose(recipient, 'Keep queued after disconnect');
+    await storage.submit(message);
+    const deferred = sync.requestSync(() => connected, account_id);
+
+    connected = false;
+    download.flush(page([], '0'));
+    await Promise.all([run, deferred]);
+
+    http.expectNone(sendPath);
+    expect(await storage.open().getPending()).to.deep.equal([message]);
+  });
+
+  it('cancels a deferred sync when the signed-in account changes', async () => {
+    const run = sync.sync();
+    const failedRun = expect(run).to.be.rejectedWith('does not match the signed-in account');
+    const download = await nextRequest(syncPath);
+    const message = api.compose(recipient, 'Queued for the original account');
+    await storage.submit(message);
+    const deferred = sync.requestSync(() => true, account_id);
+    const open = sinon.spy(storage, 'open');
+
+    userCtx.returns({ name: 'other' });
+    download.flush(page([], '0'));
+    await Promise.all([failedRun, deferred]);
+
+    expect(open).to.not.have.been.called;
+    userCtx.returns({ name: 'sender' });
+    expect(await storage.open().getPending()).to.deep.equal([message]);
   });
 
   it('persists offline sends and retries the original payload after restart and a lost response', async () => {
@@ -172,12 +282,15 @@ describe('Data messaging sync', () => {
 
   it('submits immediately for online-only accounts without opening PouchDB', async () => {
     onlineOnly = true;
+    const onQueued = sinon.spy();
+    storage.queued.subscribe(onQueued);
     const message = api.compose(recipient, 'Online');
     const submit = storage.submit(message);
     http.expectOne(sendPath).flush({ id: message._id });
     expect(await submit).to.equal('sent');
     await sync.sync();
     expect(getMessaging.callCount).to.equal(0);
+    expect(onQueued).to.not.have.been.called;
   });
 
   it('exchanges a queued message and a dashboard reply with independent unread markers', async () => {
