@@ -150,6 +150,31 @@ The standard WebdriverIO harness runs the same spec with the default CHT test se
 npm run ci-webdriver-default -- --spec tests/e2e/default/messages/data-messaging.wdio-spec.js
 ```
 
+### Desktop smoke test
+
+Start this checkout with the default CHT configuration on a disposable local dev instance. Use the usual CouchDB setup and the `build-dev-watch`, `dev-api`, and `dev-sentinel` commands. Open `http://localhost:5988` once to check that the login page loads. [CHT Core dev environment setup](https://docs.communityhealthtoolkit.org/community/contributing/code/core/dev-environment/)
+
+Run the fixture script from the repository root.
+
+```sh
+node scripts/seed-data-messaging.js
+```
+
+If your dev server uses a different `COUCH_URL` or `API_PORT`, pass the same values to the script. Each run creates three synthetic accounts and their places, replaces the instance's `data_messaging` setting with a new pilot root, and waits for the recipient directories. It prints the login details. The worker is an offline-capable `chw` assigned to a health center. The dashboard user is an online-only `program_officer` assigned to its parent district. The unrelated user is assigned to a separate district.
+
+1. Sign in as **Worker** and **Dashboard** in separate Chrome profiles, or use a regular window and an Incognito window. The dashboard login may open App Management. Go to `http://localhost:5988/#/messages` in that window, using your configured API port. In the worker window, let the initial sync finish. Open **Messages → Send Message** and check that **Dashboard** is the only recipient.
+2. In the worker tab, open Chrome DevTools → **Network** and set throttling to **Offline**. Keep DevTools open. Send a message and look for **Waiting to sync** in the worker thread. Check that the dashboard has no copy yet.
+3. Set the worker tab to **No throttling**. If needed, choose **Sync now** from the app menu or refresh the worker tab while online. The worker should show **Sent to server**. Open or refresh **Messages** on the dashboard and verify it shows one copy. Reply from the dashboard and wait for **Sent to server** there. Then sync or refresh the worker tab and verify the reply appears in the thread.
+4. Sign in as **Unrelated** in another profile and go to Messages. Verify that the conversation is absent and that **Send Message** shows **No eligible recipients**.
+5. To test rejection, take the worker offline again and queue a second message to the dashboard. While the worker is offline, run the command below with your local CouchDB admin username. Refresh the dashboard thread and wait for replies to become unavailable. Then reconnect and sync the worker. The queued message should show **This recipient can no longer receive your data message.** and offer **Copy message text**. The earlier exchange should still appear for both participants.
+
+```sh
+curl --fail-with-body -u medic -X PUT \
+  -H 'Content-Type: application/json' \
+  -d '{"data_messaging":{"enabled":false}}' \
+  "http://localhost:${API_PORT:-5988}/api/v1/settings"
+```
+
 ### Backup and restore
 
 - Include `<db>-data-messaging` in the regular CHT backup with the clinical database, `_users`, and the deployment configuration. A full CouchDB data-directory backup includes the messaging database. For database-by-database backups, include it explicitly and capture its `_security` settings. Take the backup set from the same recovery point so accepted messages and their participant account IDs stay together. [CHT Docker backup and restore guide](https://docs.communityhealthtoolkit.org/hosting/cht/docker/backups/)
