@@ -1,6 +1,6 @@
 # cht-android — incoming data message notifications
 
-The Fairvoice Android wrapper owns foreground alerts, system notifications, and notification taps. Core owns the message history, unread count, and conversation route. Agree on the versioned bridge contract in [the Core plan](fairvoice-cht-core-fcm.md) first. Use [the Firebase setup guide](firebase-setup.md) for staging.
+The Fairvoice Android wrapper owns foreground alerts, system notifications, and notification taps. Core owns the message history, unread count, and conversation route. Agree on the [Android data message push contract](fairvoice-cht-core-fcm.md#android-data-message-push-contract) first. Use [the Firebase setup guide](firebase-setup.md) for staging.
 
 ## Implementation notes
 
