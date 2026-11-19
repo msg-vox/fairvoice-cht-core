@@ -793,6 +793,31 @@ app.get('/api/couch-config-attachments', couchConfigController.getAttachments);
 app.get('/api/v1/data-messaging/sync', authorization.handleAuthErrors, dataMessaging.sync);
 app.post('/api/v1/data-messaging/messages', authorization.handleAuthErrors, jsonParser, dataMessaging.send);
 
+const pushRegistrationParser = bodyParser.json({ limit: '32kb' });
+const pushRegistrationMiddleware = [
+  (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  },
+  authorization.handleAuthErrors,
+  (req, res, next) => {
+    pushRegistrationParser(req, res, err => {
+      if (err) {
+        // Parser errors can include the original body with installation credentials.
+        return serverUtils.error({
+          code: err.status === 413 ? 413 : 400,
+          message: 'Invalid push registration request',
+        }, req, res);
+      }
+      next();
+    });
+  },
+];
+const pushRegistrationsPath = '/api/v1/data-messaging/push-registrations';
+app.post(pushRegistrationsPath, pushRegistrationMiddleware, dataMessaging.registerPush);
+app.post(`${pushRegistrationsPath}/refresh`, pushRegistrationMiddleware, dataMessaging.refreshPush);
+app.post(`${pushRegistrationsPath}/unregister`, pushRegistrationMiddleware, dataMessaging.unregisterPush);
+
 app.put(
   '/api/v1/credentials/:key',
   authorization.handleAuthErrors,

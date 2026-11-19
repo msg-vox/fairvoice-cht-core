@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { createHash, randomBytes } = require('node:crypto');
 const { once } = require('node:events');
 const { readFileSync } = require('node:fs');
 const path = require('node:path');
@@ -8,6 +9,7 @@ const { v7: uuid } = require('uuid');
 const config = require('../../src/config');
 const db = require('../../src/db');
 const migration = require('../../src/migrations/create-data-messaging-db');
+const vaultMigration = require('../../src/migrations/restrict-access-to-vault-db');
 const dataMessaging = require('../../src/services/data-messaging');
 const environment = require('@medic/environment');
 const { PREFIXES } = require('@medic/constants');
@@ -47,6 +49,7 @@ const request = (origin, path, name, options = {}) => fetch(origin + path, {
     accept: 'application/json',
     'content-type': 'application/json',
     ...(name && { authorization: 'Basic ' + Buffer.from(name + ':' + password).toString('base64') }),
+    ...options.headers,
   },
 });
 
@@ -183,6 +186,154 @@ describe('Dedicated data messaging storage', () => {
     );
     const empty = await sync(api, sender, '?since=' + encodeURIComponent(last.next_since));
     assert.deepEqual(empty.messages, []);
+  });
+
+  describe('Android push registrations', () => {
+    const registrationPath = '/api/v1/data-messaging/push-registrations';
+    const registrationIds = [];
+    const docId = key => 'data-message-push-registration:' + createHash('sha256').update(key).digest('hex');
+    const installation = (fcm_token = 'first-fcm-token') => {
+      const installation_key = randomBytes(32).toString('hex');
+      registrationIds.push(docId(installation_key));
+      return { installation_key, generation: 1, fcm_token };
+    };
+    const post = (path, body, name = sender, headers) => request(api, registrationPath + path, name, {
+      method: 'POST',
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+      headers,
+    });
+    const register = async (body, name, headers) => {
+      const response = await post('', body, name, headers);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      const result = await response.json();
+      assert.deepEqual(Object.keys(result), ['recipient_binding']);
+      assert.ok(result.recipient_binding);
+      return result;
+    };
+
+    before(async () => {
+      await db.createVault();
+      await vaultMigration.run();
+    });
+
+    after(async () => {
+      const { rows } = await db.vault.allDocs({ keys: registrationIds });
+      await db.vault.bulkDocs(rows.filter(row => row.value?.rev).map(row => ({
+        _id: row.id, _rev: row.value.rev, _deleted: true,
+      })));
+    });
+
+    it('registers several installations and acknowledges concurrent retries with one binding', async () => {
+      const first = installation();
+      const [binding, retry] = await Promise.all([register(first), register(first)]);
+      const second = await register(installation('second-fcm-token'));
+      assert.deepEqual(binding, retry);
+      assert.notEqual(second.recipient_binding, binding.recipient_binding);
+      const id = docId(first.installation_key);
+      const doc = await db.vault.get(id);
+      assert.match(doc._rev, /^1-/);
+      assert.equal(doc.account_id, accountId(sender));
+      assert.equal(doc.fcm_token, first.fcm_token);
+      assert.equal(JSON.stringify(doc).includes(first.installation_key), false);
+
+      for (const origin of [api, couch]) {
+        for (const name of [sender, recipient, administrator]) {
+          const path = `/${environment.db}-vault/${encodeURIComponent(id)}`;
+          const raw = await request(origin, path, name);
+          assert.ok([401, 403].includes(raw.status), `unexpected raw registration status for ${name}: ${raw.status}`);
+        }
+      }
+      await assert.rejects(db.dataMessaging.get(id), { status: 404 });
+      await assert.rejects(db.medic.get(id), { status: 404 });
+    });
+
+    it('rotates the token without changing the binding and rejects out-of-order refreshes', async () => {
+      const first = installation();
+      const binding = await register(first);
+      const refresh = { installation_key: first.installation_key, ...binding };
+      const older = { ...refresh, fcm_token: 'rotated-once', token_version: 1 };
+      const latest = { ...refresh, fcm_token: 'rotated-twice', token_version: 2 };
+      const [firstRefresh, latestRefresh] = await Promise.all([post('/refresh', older), post('/refresh', latest)]);
+      assert.ok([200, 409].includes(firstRefresh.status));
+      assert.equal(latestRefresh.status, 200);
+      assert.equal(latestRefresh.headers.get('cache-control'), 'no-store');
+      assert.deepEqual(await latestRefresh.json(), binding);
+      assert.deepEqual(await (await post('/refresh', latest)).json(), binding);
+      assert.equal((await post('/refresh', older)).status, 409);
+      assert.equal((await post('/refresh', { ...latest, fcm_token: 'conflicting-token' })).status, 409);
+      assert.deepEqual(await register(first), binding);
+      assert.equal((await db.vault.get(docId(first.installation_key))).fcm_token, latest.fcm_token);
+    });
+
+    it('replaces the binding on account switch and prevents a delayed request from restoring it', async () => {
+      const device = installation();
+      const first = await register(device);
+      const switched = { ...device, generation: 2 };
+      const session = await request(couch, '/_session', null, {
+        method: 'POST',
+        body: JSON.stringify({ name: recipient, password }),
+      });
+      assert.equal(session.status, 200);
+      const cookie = session.headers.get('set-cookie').split(';')[0];
+      const second = await register(switched, null, { cookie });
+      assert.notEqual(second.recipient_binding, first.recipient_binding);
+      assert.equal((await post('', device)).status, 409);
+      const stale = { installation_key: device.installation_key, ...first };
+      assert.equal((await post('/unregister', stale)).status, 403);
+      assert.equal((await post('/unregister', stale, recipient)).status, 403);
+      const staleRefresh = { ...stale, fcm_token: 'late-old-account-token', token_version: 1 };
+      assert.equal((await post('/refresh', staleRefresh)).status, 403);
+
+      const doc = await db.vault.get(docId(device.installation_key));
+      assert.equal(doc.account_id, accountId(recipient));
+      assert.equal(doc.recipient_binding, second.recipient_binding);
+      assert.equal(doc.fcm_token, device.fcm_token);
+    });
+
+    it('unregisters only the caller’s matching installation and leaves other installations active', async () => {
+      const first = installation();
+      const second = installation();
+      const firstBinding = await register(first);
+      const secondBinding = await register(second);
+      const revoke = { installation_key: first.installation_key, ...firstBinding };
+      assert.equal((await post('/unregister', revoke, recipient)).status, 403);
+      assert.equal((await post('/unregister', { ...revoke, ...secondBinding })).status, 403);
+      const response = await post('/unregister', revoke);
+      assert.equal(response.status, 204);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal((await post('/unregister', revoke)).status, 204);
+      assert.equal((await post('/refresh', { ...revoke, fcm_token: first.fcm_token, token_version: 1 })).status, 403);
+      assert.equal((await post('', first)).status, 409);
+      assert.equal((await db.vault.get(docId(first.installation_key))).fcm_token, null);
+      assert.equal((await db.vault.get(docId(second.installation_key))).fcm_token, second.fcm_token);
+      const rebound = await register({ ...first, generation: 2 });
+      assert.notEqual(rebound.recipient_binding, firstBinding.recipient_binding);
+      assert.equal((await post('/unregister', revoke)).status, 403);
+    });
+
+    it('requires authentication and rejects invalid or forged registration fields', async () => {
+      const device = installation();
+      for (const path of ['', '/refresh', '/unregister']) {
+        assert.equal((await post(path, device, null)).status, 401);
+        assert.equal((await post(path, device, 'missing-messaging-user')).status, 401);
+      }
+      for (const fields of [
+        { account_id: accountId(recipient) },
+        { installation_key: 'predictable-key' },
+        { generation: 0 },
+        { fcm_token: 'token with spaces' },
+      ]) {
+        assert.equal((await post('', { ...device, ...fields })).status, 400);
+      }
+      const malformed = await post('', '{"fcm_token":"private-incomplete-json"');
+      assert.equal(malformed.status, 400);
+      assert.equal(malformed.headers.get('cache-control'), 'no-store');
+      assert.equal((await malformed.text()).includes('private-incomplete-json'), false);
+      assert.equal((await post('', { ...device, fcm_token: 'x'.repeat(4097) })).status, 400);
+      assert.equal((await post('', { ...device, fcm_token: 'x'.repeat(33 * 1024) })).status, 413);
+      await assert.rejects(db.vault.get(docId(device.installation_key)), { status: 404 });
+    });
   });
 
   describe('message uploads', () => {

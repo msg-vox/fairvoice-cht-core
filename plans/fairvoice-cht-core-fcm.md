@@ -14,8 +14,9 @@ Agree on the contract with Android first. Deploy Core with sending disabled, rel
 
    Commit `docs(#fcm): define the Android data message push contract`.
 
-2. **Manage installation registrations.** Add authenticated register, refresh, and unregister operations under `/api/v1/data-messaging`. Derive the account from the session and keep tokens in server-private storage. Support several devices per account and replace the binding when an installation switches users. Test token rotation, account switching, and an attempt to revoke another installation.  
-   Commit `feat(#<issue>): register Android installations for data message alerts`.
+2. **Manage installation registrations.** See the [Android push registration API](#android-push-registration-api) for the authenticated operations, token rotation, and account switching rules.
+
+   Commit `feat(#fcm): register Android installations for data message alerts`.
 
 3. **Queue alerts for accepted messages.** Consume canonical `data_message` creates in the dedicated messaging database. Persist a checkpoint and a uniquely keyed job per message and recipient installation before advancing the checkpoint. Start from the pilot activation checkpoint to avoid alerting on historical messages. Test a delayed offline upload, identical send retries, and a worker restart between enqueue and checkpoint.  
    Commit `feat(#<issue>): queue push alerts for accepted data messages`.
@@ -96,3 +97,19 @@ A missing acknowledgement leaves the event pending. Retry with the same ID when 
 1. **Foreground receipt and FCM replay.** Android receives the example payload while a worker is editing a form. It shows “New message from Alice Doe” and dispatches `cht:data-message:received` with `delivery_id: "receipt-1"`. The WebApp schedules scoped sync and calls `ackDataMessagePush('receipt-1', 'handled')`. The unread count is recalculated after sync and the form stays open. Replaying the same FCM payload with a different FCM-assigned ID causes no second alert.
 2. **Cold-start notification tap.** On another installation for the same recipient, Android displays a background notification for Alice using that installation’s binding. The tap launches the app. When the matching WebApp calls `dataMessagePushReady('1')`, Android dispatches `cht:data-message:tapped` with `delivery_id: "tap-1"` and that installation’s original payload fields. Angular navigates using `['/messages', 'data:org.couchdb.user:clinic:alice']`. The WebApp acknowledges `handled` once the thread opens. If Android missed the acknowledgement, it can replay `tap-1` without causing a second navigation in the same page.
 3. **Account switch.** If the user switches accounts before a queued tap reaches the WebApp, Android clears the tap with its old binding. A delayed push carrying that binding produces no alert. If a stale event reaches a ready WebApp, the handler returns `discarded` and neither syncs nor navigates for that event.
+
+## Android push registration API
+
+Send these JSON requests through the signed-in CHT session. Core gets the account ID from that session. Each request body accepts exactly the fields listed, and responses use `Cache-Control: no-store`.
+
+| Method and path | Request body | Success |
+| --- | --- | --- |
+| `POST /api/v1/data-messaging/push-registrations` | `installation_key`, `generation`, `fcm_token` | `200` with `{ "recipient_binding": "…" }` |
+| `POST /api/v1/data-messaging/push-registrations/refresh` | `installation_key`, `recipient_binding`, `fcm_token`, `token_version` | `200` with the current `{ "recipient_binding": "…" }` |
+| `POST /api/v1/data-messaging/push-registrations/unregister` | `installation_key`, `recipient_binding` | `204` with an empty body |
+
+- Generate `installation_key` from 32 random bytes encoded as 64 lowercase hex characters. Store it with the installation’s counters in device-local storage that survives sign-out. Keep it out of backups, URLs, logs, and FCM payloads. Every device generates its own key. Core stores a hash of the key and keeps the FCM token in the server-only vault.
+- Start `generation` at `1`. Persist a higher generation before registering a new signed-in association, including after signing back in to the same account. Retries of a registration use the same generation. The same generation and account return the current binding while the registration is active and leave the token as stored. A higher generation replaces the account, token, and binding atomically. A delayed register with an older generation, or a register at a revoked generation, returns `409`. Discard responses for associations that have since changed.
+- `fcm_token` is the Firebase installation token, up to 4096 printable ASCII characters without spaces. Refresh it with the current binding and a higher `token_version`, starting at `1` for each new binding. Persist assigned versions before sending and reuse the version and token for retries. A retry at the current version with the same token succeeds. A stale version or reuse with a different token returns `409`. If Firebase rotates the token while registration is in flight, use refresh with the latest token once the binding is available.
+- Unregister with the current session, key, and binding. Core removes the active token and retains the generation to prevent a delayed register from reactivating it. Repeating the same unregister succeeds while that generation is current. An unknown installation, wrong account, or wrong binding returns `403` for refresh or unregister. Refresh of a revoked registration also returns `403`.
+- Both counters are positive JSON integers within JavaScript’s safe integer range. Malformed request fields return `400`. Attempt unregister using the existing session when signing out online. Clear the local binding and pending events immediately on logout or account or deployment switch, including offline. The next successful registration can replace the old association even if unregister was unavailable.
