@@ -109,4 +109,15 @@ const unregister = async (accountId, body) => {
   });
 };
 
-module.exports = { register, refresh, unregister };
+const listActiveForAccount = async accountId => {
+  const { rows } = await db.vault.allDocs({
+    startkey: REGISTRATION_PREFIX,
+    endkey: REGISTRATION_PREFIX + '\ufff0',
+    include_docs: true,
+  });
+  return rows.map(row => row.doc)
+    .filter(doc => doc?.type === REGISTRATION_TYPE && doc.account_id === accountId && doc.fcm_token)
+    .map(({ _id, recipient_binding }) => ({ _id, recipient_binding }));
+};
+
+module.exports = { register, refresh, unregister, listActiveForAccount };

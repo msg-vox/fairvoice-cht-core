@@ -84,6 +84,7 @@ process
     await migrations.run();
     logger.info('Database migrations completed successfully');
     require('./src/services/data-messaging-directory-watcher').start();
+    require('./src/services/data-messaging-push-queue').start();
 
     logger.info('Generating manifest');
     await manifest.generate();
