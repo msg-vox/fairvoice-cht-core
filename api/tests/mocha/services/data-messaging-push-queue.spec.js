@@ -44,13 +44,15 @@ describe('Data message push queue', () => {
       vault.set(doc._id, { ...doc, _rev: rev });
       return Promise.resolve({ rev });
     });
-    sinon.stub(db.vault, 'allDocs').resolves({
-      rows: [
-        { doc: registration },
-        { doc: { ...registration, _id: registration._id + '2', recipient_binding: 'binding2' } },
-        { doc: { ...registration, _id: registration._id + '3', fcm_token: null } },
-        { doc: { ...registration, _id: registration._id + '4', account_id: message.sender_id } },
-      ],
+    sinon.stub(db.vault, 'query').callsFake((view, options) => {
+      assert.equal(view, 'data-message-push-registrations-v1/data-message-push-registrations-v1');
+      assert.deepEqual(options, { key: message.recipient_id });
+      return Promise.resolve({
+        rows: [
+          { id: registration._id, value: registration.recipient_binding },
+          { id: registration._id + '2', value: 'binding2' },
+        ],
+      });
     });
     changes = sinon.stub(db.dataMessaging, 'changes').callsFake(({ since }) => {
       assert.ok([activation, accepted].includes(since));

@@ -1,5 +1,6 @@
 const { createHash, randomBytes } = require('node:crypto');
 const db = require('../db');
+const queryView = require('./data-messaging-push-view');
 const { BadRequestError, ConflictError, PermissionError } = require('../errors');
 
 const REGISTRATION_TYPE = 'data_message_push_registration';
@@ -109,15 +110,15 @@ const unregister = async (accountId, body) => {
   });
 };
 
+const activeRegistrationsMap = `function (doc) {
+  if (doc.type === "${REGISTRATION_TYPE}" && doc.fcm_token) {
+    emit(doc.account_id, doc.recipient_binding);
+  }
+}`;
+
 const listActiveForAccount = async accountId => {
-  const { rows } = await db.vault.allDocs({
-    startkey: REGISTRATION_PREFIX,
-    endkey: REGISTRATION_PREFIX + '\ufff0',
-    include_docs: true,
-  });
-  return rows.map(row => row.doc)
-    .filter(doc => doc?.type === REGISTRATION_TYPE && doc.account_id === accountId && doc.fcm_token)
-    .map(({ _id, recipient_binding }) => ({ _id, recipient_binding }));
+  const { rows } = await queryView('data-message-push-registrations-v1', activeRegistrationsMap, { key: accountId });
+  return rows.map(({ id, value }) => ({ _id: id, recipient_binding: value }));
 };
 
 const getCurrent = async job => {
