@@ -38,9 +38,17 @@ describe('Data message push dispatch', () => {
         generation: 4, account_id: recipient, recipient_binding: 'binding', fcm_token: 'current-token',
       }],
     ]);
-    sinon.stub(db.vault, 'allDocs').callsFake(() => Promise.resolve({
-      rows: [{ id: jobId, doc: docs.get(jobId) }],
-    }));
+    sinon.stub(db.vault, 'query').callsFake((view, { endkey, include_docs, limit }) => {
+      assert.equal(view, 'data-message-push-pending-v1/data-message-push-pending-v1');
+      assert.equal(include_docs, true);
+      assert.equal(limit, 101);
+      assert.deepEqual(endkey, [Date.now(), {}]);
+      const doc = docs.get(jobId);
+      const nextAttempt = doc.next_attempt_at || 0;
+      return Promise.resolve({
+        rows: !doc.status && nextAttempt <= endkey[0] ? [{ key: [nextAttempt, jobId], doc }] : [],
+      });
+    });
     sinon.stub(db.vault, 'get').callsFake(id => Promise.resolve(docs.get(id)));
     put = sinon.stub(db.vault, 'put').callsFake(doc => {
       if (docs.get(doc._id)?._rev !== doc._rev) {
@@ -92,7 +100,7 @@ describe('Data message push dispatch', () => {
   it('skips jobs when messaging is disabled or the relationship is outside the current pilot', async () => {
     settings.returns({ enabled: false });
     await processPage();
-    sinon.assert.notCalled(db.vault.allDocs);
+    sinon.assert.notCalled(db.vault.query);
     settings.returns({ enabled: true });
     eligibility.resolves(false);
     await processPage();

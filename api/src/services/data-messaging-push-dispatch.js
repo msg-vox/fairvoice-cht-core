@@ -3,7 +3,8 @@ const db = require('../db');
 const messaging = require('./data-messaging');
 const registrations = require('./data-messaging-push-registrations');
 const fcm = require('./data-messaging-fcm');
-const { JOB_PREFIX, JOB_TYPE } = require('./data-messaging-push-queue');
+const { JOB_TYPE } = require('./data-messaging-push-queue');
+const queryView = require('./data-messaging-push-view');
 
 const LIFETIME = 5 * 60 * 1000;
 const LEASE_TIME = 60000;
@@ -85,13 +86,19 @@ const dispatchJob = async (job, send) => {
   await update(job, { status: result.status });
 };
 
-const processPage = async (send, startkey = JOB_PREFIX) => {
+const pendingJobsMap = `function (doc) {
+  if (doc.type === "${JOB_TYPE}" && !doc.status) {
+    emit([doc.next_attempt_at || 0, doc._id], null);
+  }
+}`;
+
+const processPage = async (send, startkey) => {
   if (!messaging.getConfig().enabled) {
     return;
   }
-  const { rows } = await db.vault.allDocs({
+  const { rows } = await queryView('data-message-push-pending-v1', pendingJobsMap, {
     startkey,
-    endkey: JOB_PREFIX + '\ufff0',
+    endkey: [Date.now(), {}],
     include_docs: true,
     limit: PAGE_SIZE + 1,
   });
@@ -107,7 +114,7 @@ const processPage = async (send, startkey = JOB_PREFIX) => {
       }
     }
   }
-  return rows[PAGE_SIZE]?.id;
+  return rows[PAGE_SIZE]?.key;
 };
 
 const start = () => {
