@@ -248,20 +248,29 @@ describe('Dedicated data messaging storage', () => {
       await assert.rejects(db.medic.get(id), { status: 404 });
     });
 
-    it('rotates the token without changing the binding and rejects out-of-order refreshes', async () => {
+    it('rotates the token without changing the binding and rejects refreshes from a stale token', async () => {
       const first = installation();
       const binding = await register(first);
       const refresh = { installation_key: first.installation_key, ...binding };
-      const older = { ...refresh, fcm_token: 'rotated-once', token_version: 1 };
-      const latest = { ...refresh, fcm_token: 'rotated-twice', token_version: 2 };
-      const [firstRefresh, latestRefresh] = await Promise.all([post('/refresh', older), post('/refresh', latest)]);
-      assert.ok([200, 409].includes(firstRefresh.status));
+      const older = { ...refresh, previous_fcm_token: first.fcm_token, fcm_token: 'rotated-once' };
+      const competing = { ...older, fcm_token: 'competing-token' };
+      const [firstRefresh, competingRefresh] = await Promise.all([
+        post('/refresh', older),
+        post('/refresh', competing),
+      ]);
+      assert.deepEqual([firstRefresh.status, competingRefresh.status].sort(), [200, 409]);
+      const accepted = firstRefresh.ok ? older : competing;
+      const rejected = firstRefresh.ok ? competing : older;
+      const retry = await post('/refresh', accepted);
+      assert.equal(retry.status, 200);
+      assert.equal(retry.headers.get('cache-control'), 'no-store');
+      assert.deepEqual(await retry.json(), binding);
+      const latest = { ...refresh, previous_fcm_token: accepted.fcm_token, fcm_token: 'rotated-twice' };
+      const latestRefresh = await post('/refresh', latest);
       assert.equal(latestRefresh.status, 200);
-      assert.equal(latestRefresh.headers.get('cache-control'), 'no-store');
       assert.deepEqual(await latestRefresh.json(), binding);
-      assert.deepEqual(await (await post('/refresh', latest)).json(), binding);
-      assert.equal((await post('/refresh', older)).status, 409);
-      assert.equal((await post('/refresh', { ...latest, fcm_token: 'conflicting-token' })).status, 409);
+      assert.equal((await post('/refresh', accepted)).status, 409);
+      assert.equal((await post('/refresh', rejected)).status, 409);
       assert.deepEqual(await register(first), binding);
       assert.equal((await db.vault.get(docId(first.installation_key))).fcm_token, latest.fcm_token);
     });
@@ -282,7 +291,7 @@ describe('Dedicated data messaging storage', () => {
       const stale = { installation_key: device.installation_key, ...first };
       assert.equal((await post('/unregister', stale)).status, 403);
       assert.equal((await post('/unregister', stale, recipient)).status, 403);
-      const staleRefresh = { ...stale, fcm_token: 'late-old-account-token', token_version: 1 };
+      const staleRefresh = { ...stale, previous_fcm_token: device.fcm_token, fcm_token: 'late-old-account-token' };
       assert.equal((await post('/refresh', staleRefresh)).status, 403);
 
       const doc = await db.vault.get(docId(device.installation_key));
@@ -303,7 +312,8 @@ describe('Dedicated data messaging storage', () => {
       assert.equal(response.status, 204);
       assert.equal(response.headers.get('cache-control'), 'no-store');
       assert.equal((await post('/unregister', revoke)).status, 204);
-      assert.equal((await post('/refresh', { ...revoke, fcm_token: first.fcm_token, token_version: 1 })).status, 403);
+      const refresh = { ...revoke, previous_fcm_token: first.fcm_token, fcm_token: 'late-token' };
+      assert.equal((await post('/refresh', refresh)).status, 403);
       assert.equal((await post('', first)).status, 409);
       assert.equal((await db.vault.get(docId(first.installation_key))).fcm_token, null);
       assert.equal((await db.vault.get(docId(second.installation_key))).fcm_token, second.fcm_token);

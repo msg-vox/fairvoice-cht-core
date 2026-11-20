@@ -70,7 +70,6 @@ const register = async (accountId, body) => {
       account_id: accountId,
       generation,
       fcm_token,
-      token_version: 0,
       recipient_binding: randomBytes(32).toString('hex'),
     };
   });
@@ -81,20 +80,22 @@ const refresh = async (accountId, body) => {
   validate(body, {
     installation_key: isInstallationKey,
     recipient_binding: isBinding,
+    previous_fcm_token: isToken,
     fcm_token: isToken,
-    token_version: isPositiveInteger,
   });
-  const { installation_key, recipient_binding, fcm_token, token_version } = body;
+  const { installation_key, recipient_binding, previous_fcm_token, fcm_token } = body;
   const registration = await updateRegistration(installation_key, previous => {
     requireBinding(previous, accountId, recipient_binding);
     if (!previous.fcm_token) {
       throw new PermissionError('Push registration has been revoked');
     }
-    if (token_version < previous.token_version ||
-        (token_version === previous.token_version && fcm_token !== previous.fcm_token)) {
-      throw new ConflictError('Push registration token version is no longer current');
+    if (previous.fcm_token === fcm_token) {
+      return previous;
     }
-    return token_version === previous.token_version ? previous : { ...previous, fcm_token, token_version };
+    if (previous.fcm_token !== previous_fcm_token) {
+      throw new ConflictError('Previous push registration token is no longer current');
+    }
+    return { ...previous, fcm_token };
   });
   return { recipient_binding: registration.recipient_binding };
 };

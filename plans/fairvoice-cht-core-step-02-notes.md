@@ -1,5 +1,7 @@
 # Step 02 — Android push registrations
 
+The original refresh counter was replaced in [step 02a](fairvoice-cht-core-step-02a-notes.md).
+
 - Added authenticated register, refresh, and unregister endpoints under `/api/v1/data-messaging/push-registrations`. Core derives the account from the CHT session. The [registration API contract](fairvoice-cht-core-fcm.md#android-push-registration-api) describes the request fields, retries, and account switching for the Android client.
 - `api/src/services/data-messaging-push-registrations.js` uses the existing server-only CouchDB vault. Each installation has its own record, keyed by a hash of its private installation key. A token refresh preserves the binding. A new signed-in association atomically replaces it. Unregister removes the active token and retains the generation so a delayed request cannot reactivate it. Revision checks and counters prevent concurrent or older requests from undoing a newer update.
 
