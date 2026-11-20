@@ -23,6 +23,7 @@ describe('DataMessagingHistoryService', () => {
   let directory;
   let local;
   let session;
+  let sync;
 
   beforeEach(() => {
     messaging = { accountId: sinon.stub().returns(accountId), getSyncPage: sinon.stub() };
@@ -30,7 +31,8 @@ describe('DataMessagingHistoryService', () => {
     storage = { open: sinon.stub().returns(local), changes: new Subject() };
     directory = { getDirectory: sinon.stub().resolves(page.directory) };
     session = { isOnlineOnly: sinon.stub().returns(true) };
-    service = new DataMessagingHistoryService(messaging, storage, directory, session);
+    sync = { requestSync: sinon.stub().resolves() };
+    service = new DataMessagingHistoryService(messaging, storage, directory, session, sync);
   });
 
   afterEach(() => sinon.restore());
@@ -53,6 +55,19 @@ describe('DataMessagingHistoryService', () => {
     expect(await service.read()).to.deep.equal({ accountId, directory: [], messages: [expected] });
     expect(changed.callCount).to.equal(2);
     expect(storage.open.called).to.be.false;
+  });
+
+  it('refreshes the active account through the appropriate sync path', async () => {
+    sinon.stub(navigator, 'onLine').get(() => true);
+    messaging.getSyncPage.resolves(page);
+    await service.refreshFromServer(accountId);
+    expect(messaging.getSyncPage.calledOnce).to.be.true;
+
+    session.isOnlineOnly.returns(false);
+    await service.refreshFromServer(peer);
+    expect(sync.requestSync.called).to.be.false;
+    await service.refreshFromServer(accountId);
+    expect(sync.requestSync.firstCall.args[1]).to.equal(accountId);
   });
 
   it('shares one fresh download after a dashboard refresh already in progress', async () => {

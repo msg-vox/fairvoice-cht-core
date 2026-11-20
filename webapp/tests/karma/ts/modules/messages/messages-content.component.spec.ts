@@ -63,12 +63,12 @@ describe('MessagesContentComponent', () => {
         return { unsubscribe: sinon.stub() };
       })
     };
-    sessionService = { userCtx: sinon.stub().returns({ name: 'Sarah' }) };
+    sessionService = { userCtx: sinon.stub().returns({ name: 'Sarah' }), isOnlineOnly: sinon.stub().returns(false) };
     lineageModelGeneratorService = { contact: sinon.stub().resolves() };
     markReadService = { markAsRead: sinon.stub().resolves() };
     sendMessageService = { send: sinon.stub().resolves() };
     modalService = { show: sinon.stub() };
-    dataHistory = { changes: new Subject() };
+    dataHistory = { changes: new Subject(), refreshFromServer: sinon.stub().resolves() };
     dataConversations = { getConversations: sinon.stub().resolves([]) };
     const mockedSelectors = [
       { selector: 'getSelectedConversation', value: {} },
@@ -214,6 +214,54 @@ describe('MessagesContentComponent', () => {
       .to.include('Another message');
     expect(markReadService.markAsRead.callCount).to.equal(2);
     expect(markReadService.markAsRead.lastCall.args[0]).to.deep.equal([downloaded]);
+  }));
+
+  it('shows a retry for empty offline history and marks only the opened thread read', fakeAsync(() => {
+    let online = false;
+    sinon.stub(navigator, 'onLine').get(() => online);
+    const id = 'org.couchdb.user:clinic:alice';
+    const ownId = 'org.couchdb.user:recipient';
+    const other = 'org.couchdb.user:zone:bob';
+    const first = { _id: 'data-message:alice', type: 'data_message', sender_id: id, recipient_id: ownId, text: 'Hi' };
+    const second = { ...first, _id: 'data-message:bob', sender_id: other };
+    const setSelected = sinon.spy(MessagesActions.prototype, 'setSelectedConversation');
+    activatedRouteParams.next({ type_id: 'data:' + id });
+    tick();
+    expect(dataConversations.getConversations.lastCall.args).to.deep.equal([{
+      loadOnline: false, loadReadMarkers: true,
+    }]);
+    component.selectedConversation = setSelected.lastCall.args[0];
+    fixture.detectChanges();
+    const retry = fixture.nativeElement.querySelector('.empty-selection button');
+    expect(retry).to.exist;
+
+    online = true;
+    const thread = (sender, doc) => ({ id: sender, type: 'data', messages: [{ id: doc._id, doc, read: false }] });
+    dataConversations.getConversations.resolves([thread(id, first), thread(other, second)]);
+    retry.click();
+    tick();
+    expect(dataHistory.refreshFromServer.calledOnce).to.be.true;
+    expect(setSelected.lastCall.args[0].id).to.equal(id);
+    expect(markReadService.markAsRead.args).to.deep.equal([[[first]]]);
+  }));
+
+  it('renders cached history while offline and defers dashboard read markers', fakeAsync(() => {
+    sinon.stub(navigator, 'onLine').get(() => false);
+    sessionService.isOnlineOnly.returns(true);
+    const id = 'org.couchdb.user:clinic:alice';
+    const doc = {
+      _id: 'data-message:cached', type: 'data_message', sender_id: id, text: 'Cached message',
+    };
+    const thread = { id, type: 'data', messages: [{ id: doc._id, doc, read: false }] };
+    dataConversations.getConversations.resolves([thread]);
+    const setSelected = sinon.spy(MessagesActions.prototype, 'setSelectedConversation');
+    activatedRouteParams.next({ type_id: 'data:' + id });
+    tick();
+    expect(dataConversations.getConversations.lastCall.args).to.deep.equal([{
+      loadOnline: false, loadReadMarkers: false,
+    }]);
+    expect(setSelected.lastCall.args[0]).to.equal(thread);
+    expect(markReadService.markAsRead.called).to.be.false;
   }));
 
   it('keeps the requested account thread selected when an older request completes', fakeAsync(() => {

@@ -5,7 +5,16 @@
   </div>
 
   <div class="item-content empty-selection" *ngIf="(!selectedConversation?.messages || !selectedConversation?.messages[0]) && !loadingContent">
-    <div>{{'No message selected' | translate}}</div>
+    @if (selectedConversation?.type === dataConversationType) {
+      <div>
+        <p role="status">{{ 'messages.data.history_error' | translate }}</p>
+        <button type="button" class="btn btn-default" (click)="retryDataHistory()" [disabled]="retryingDataHistory">
+          {{ 'sync.retry' | translate }}
+        </button>
+      </div>
+    } @else {
+      <div>{{ 'No message selected' | translate }}</div>
+    }
   </div>
 
   <div class="message-content-wrapper item-content" *ngIf="selectedConversation?.messages && selectedConversation?.messages[0] && !loadingContent">

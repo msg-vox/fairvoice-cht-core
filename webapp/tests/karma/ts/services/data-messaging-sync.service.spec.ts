@@ -306,7 +306,7 @@ describe('Data messaging sync', () => {
     }];
     const dashboardDirectory = [{ account_id, display_name: 'Jo', role_label: 'CHW', place_label: 'Village' }];
     const workerHistory = new DataMessagingHistoryService(
-      api, storage, new DataMessagingDirectoryService(api, workerSession, devices), workerSession
+      api, storage, new DataMessagingDirectoryService(api, workerSession, devices), workerSession, sync
     );
     const dashboardApi = new DataMessagingService(TestBed.inject(HttpClient), dashboardSession);
     const dashboardStore = new DataMessagingStoreService(dashboardSession, devices, dashboardApi);
@@ -314,7 +314,8 @@ describe('Data messaging sync', () => {
       dashboardApi,
       dashboardStore,
       new DataMessagingDirectoryService(dashboardApi, dashboardSession, devices),
-      dashboardSession
+      dashboardSession,
+      new DataMessagingSyncService(dashboardApi, dashboardStore, dashboardSession),
     );
     const workerMetadata = { get: () => workerMeta } as unknown as DbService;
     const dashboardMetadata = { get: () => dashboardMeta } as unknown as DbService;

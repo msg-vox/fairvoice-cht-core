@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { ClipboardModule } from '@angular/cdk/clipboard';
-import { combineLatest, debounceTime, Subscription, take } from 'rxjs';
+import { combineLatest, debounceTime, fromEvent, Subscription, take } from 'rxjs';
 import { select, Store } from '@ngrx/store';
 import { last as _last, minBy as _minBy } from 'lodash-es';
 import { DOC_TYPES } from '@medic/constants';
@@ -72,6 +72,7 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
   private messagesActions!: MessagesActions;
   loadingContent;
   loadingMoreContent = false;
+  retryingDataHistory = false;
   selectedConversation;
   firstUnread;
   send = { message: '' };
@@ -123,6 +124,13 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
         void this.refreshDataConversation(this.urlParameters.id);
       }
     }));
+    if (this.sessionService.isOnlineOnly()) {
+      this.subscriptions.add(fromEvent(window, 'online').subscribe(() => {
+        if (this.urlParameters.type === DATA_CONVERSATION) {
+          void this.retryDataHistory();
+        }
+      }));
+    }
   }
 
   ngAfterViewInit(): void {
@@ -131,8 +139,8 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
       const separator = path.indexOf(':');
       const type = separator < 0 ? '' : path.slice(0, separator);
       const id = separator < 0 ? '' : path.slice(separator + 1);
-      this.urlParameters.type = type;
-      this.urlParameters.id = id;
+      this.urlParameters = { type, id };
+      this.retryingDataHistory = false;
       this.dataRequest++;
       this.send.message = '';
       this.firstUnread = null;
@@ -177,6 +185,7 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
 
   ngOnDestroy(): void {
     this.dataRequest++;
+    this.urlParameters = { type: '', id: '' };
     this.subscriptions.unsubscribe();
     $('body').off('focus', '#message-footer textarea');
     $('body').off('blur', '#message-footer textarea');
@@ -192,7 +201,11 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
   private async refreshDataConversation(id: string, opening = false) {
     const request = ++this.dataRequest;
     try {
-      const threads = await this.dataConversations.getConversations();
+      const loadReadMarkers = navigator.onLine || !this.sessionService.isOnlineOnly();
+      const threads = await this.dataConversations.getConversations({
+        loadOnline: opening && navigator.onLine,
+        loadReadMarkers,
+      });
       if (request !== this.dataRequest) {
         return;
       }
@@ -213,7 +226,7 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
       if (opening) {
         this.trackPerformance?.stop({ name: 'messages_detail:load', recordApdex: true });
       }
-      if (unread.length) {
+      if (loadReadMarkers && unread.length) {
         this.markReadService.markAsRead(unread.map(message => message.doc))
           .catch(() => console.error('Error marking data messages as read'));
       }
@@ -221,6 +234,24 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
       if (request === this.dataRequest) {
         this.globalActions.setLoadingContent(false);
         this.messagesActions.setMessagesError(true);
+      }
+    }
+  }
+
+  async retryDataHistory(): Promise<void> {
+    const route = this.urlParameters;
+    if (route.type !== DATA_CONVERSATION || !route.id || this.retryingDataHistory) {
+      return;
+    }
+    this.retryingDataHistory = true;
+    try {
+      await this.dataHistory.refreshFromServer().catch(() => {});
+      if (this.urlParameters === route) {
+        await this.refreshDataConversation(route.id);
+      }
+    } finally {
+      if (this.urlParameters === route) {
+        this.retryingDataHistory = false;
       }
     }
   }

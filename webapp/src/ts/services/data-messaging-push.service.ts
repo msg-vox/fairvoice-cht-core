@@ -1,24 +1,27 @@
 import { Injectable, OnDestroy } from '@angular/core';
-import { NavigationEnd, Router } from '@angular/router';
+import { IsActiveMatchOptions, NavigationEnd, Router } from '@angular/router';
 import { fromEvent, Subscription } from 'rxjs';
 import { validate as isUuid } from 'uuid';
 import { PREFIXES } from '@medic/constants';
 
 import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
 import { DataMessagingService } from '@mm-services/data-messaging.service';
-import { DataMessagingSyncService } from '@mm-services/data-messaging-sync.service';
-import { SessionService } from '@mm-services/session.service';
 
 const RECEIVED = 'cht:data-message:received';
 const TAPPED = 'cht:data-message:tapped';
 const REGISTRATION_CHANGED = 'cht:data-message:registration-changed';
 const COALESCE_MS = 75;
+const THREAD_MATCH: IsActiveMatchOptions = {
+  paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored',
+};
 
 type TerminalStatus = 'handled' | 'discarded';
 type Registration = { account_id: string; recipient_binding: string };
 type PushSession = {
   registration: Registration;
   outcomes: Map<string, TerminalStatus>;
+  taps: Set<string>;
+  tapQueue: Promise<void>;
   pending: boolean;
   refreshing: boolean;
 };
@@ -39,9 +42,7 @@ export class DataMessagingPushService implements OnDestroy {
   constructor(
     private router: Router,
     private messaging: DataMessagingService,
-    private sync: DataMessagingSyncService,
     private history: DataMessagingHistoryService,
-    private session: SessionService,
   ) {}
 
   init(): void {
@@ -106,7 +107,10 @@ export class DataMessagingPushService implements OnDestroy {
     if (registration.account_id !== this.current?.registration.account_id ||
         registration.recipient_binding !== this.current.registration.recipient_binding) {
       this.clearSession();
-      this.current = { registration, outcomes: new Map(), pending: false, refreshing: false };
+      this.current = {
+        registration, outcomes: new Map(), taps: new Set(), tapQueue: Promise.resolve(),
+        pending: false, refreshing: false,
+      };
       window.medicmobile_android.dataMessagePushReady('1');
     }
     return this.current;
@@ -122,7 +126,11 @@ export class DataMessagingPushService implements OnDestroy {
       if (status !== 'retry') {
         current?.outcomes.set(detail.delivery_id, status);
       }
-      window.medicmobile_android?.ackDataMessagePush(detail.delivery_id, status);
+      try {
+        window.medicmobile_android?.ackDataMessagePush(detail.delivery_id, status);
+      } catch {
+        // Android can replay the delivery if the acknowledgement could not cross the bridge.
+      }
     };
     const previous = current?.outcomes.get(detail.delivery_id);
     if (previous) {
@@ -146,12 +154,41 @@ export class DataMessagingPushService implements OnDestroy {
       return;
     }
     if (event.type === TAPPED) {
-      ack('retry');
+      const { delivery_id: id, sender_account_id: sender } = detail;
+      if (!current.taps.has(id)) {
+        current.taps.add(id);
+        current.tapQueue = current.tapQueue.then(async () => {
+          const status = await this.openThread(current, sender);
+          current.taps.delete(id);
+          ack(status);
+        });
+      }
       return;
     }
     current.pending = true;
     this.schedule(current);
     ack('handled');
+  }
+
+  private async openThread(current: PushSession, sender: string): Promise<TerminalStatus> {
+    try {
+      if (this.current !== current || this.updateSession() !== current) {
+        return 'discarded';
+      }
+      const segments = ['/messages', 'data:' + sender];
+      const target = this.router.createUrlTree(segments);
+      if (!this.router.isActive(target, THREAD_MATCH) && !await this.router.navigate(segments)) {
+        return 'discarded';
+      }
+      if (this.current !== current || this.updateSession() !== current || !this.router.isActive(target, THREAD_MATCH)) {
+        return 'discarded';
+      }
+      current.pending = true;
+      this.schedule(current);
+      return 'handled';
+    } catch {
+      return 'discarded';
+    }
   }
 
   private resume(): void {
@@ -178,11 +215,7 @@ export class DataMessagingPushService implements OnDestroy {
     current.refreshing = true;
     let succeeded = false;
     try {
-      if (this.session.isOnlineOnly()) {
-        await this.history.refreshOnline({ afterCurrent: true });
-      } else {
-        await this.sync.requestSync(() => navigator.onLine, current.registration.account_id);
-      }
+      await this.history.refreshFromServer(current.registration.account_id);
       succeeded = navigator.onLine;
     } catch {
       // A later resume or reconnect will retry the scoped refresh.

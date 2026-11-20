@@ -32,7 +32,7 @@ const compareMessages = (a: DataConversationMessage, b: DataConversationMessage)
 export class DataMessagingConversationsService {
   constructor(private history: DataMessagingHistoryService, private addReadStatus: AddReadStatusService) {}
 
-  private async readMessages(loadOnline: boolean) {
+  private async readMessages(loadOnline: boolean, loadReadMarkers = true) {
     const { accountId, directory, messages } = await this.history.read({ loadOnline });
     const viewMessages = messages.map(({ localId, message, delivery }) => ({
       id: localId,
@@ -41,7 +41,9 @@ export class DataMessagingConversationsService {
       read: message.sender_id === accountId,
       delivery,
     }));
-    const incoming = viewMessages.filter(({ doc, outgoing }) => !outgoing && doc.recipient_id === accountId);
+    const incoming = loadReadMarkers
+      ? viewMessages.filter(({ doc, outgoing }) => !outgoing && doc.recipient_id === accountId)
+      : [];
     const read = await this.addReadStatus.updateDataMessages(
       incoming.map(entry => ({ _id: entry.doc._id, read: false, entry }))
     );
@@ -52,8 +54,8 @@ export class DataMessagingConversationsService {
     return { directory, messages: participantMessages };
   }
 
-  async getConversations(): Promise<DataConversation[]> {
-    const { directory, messages } = await this.readMessages(true);
+  async getConversations({ loadOnline = true, loadReadMarkers = true } = {}): Promise<DataConversation[]> {
+    const { directory, messages } = await this.readMessages(loadOnline, loadReadMarkers);
     const recipients = new Map(directory?.map(entry => [entry.account_id, entry]));
     const threads = new Map<string, DataConversation>();
     for (const message of messages) {

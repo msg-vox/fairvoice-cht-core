@@ -5,6 +5,7 @@ import { Subject } from 'rxjs';
 import { DataMessagingDirectoryService } from '@mm-services/data-messaging-directory.service';
 import { DataMessage, DataMessagingDirectory, DataMessagingService } from '@mm-services/data-messaging.service';
 import { DataMessagingStoreService, StoredDataMessage } from '@mm-services/data-messaging-store.service';
+import { DataMessagingSyncService } from '@mm-services/data-messaging-sync.service';
 import { SessionService } from '@mm-services/session.service';
 
 type OnlineHistory = {
@@ -33,6 +34,7 @@ export class DataMessagingHistoryService {
     private storage: DataMessagingStoreService,
     private directory: DataMessagingDirectoryService,
     private session: SessionService,
+    private sync: DataMessagingSyncService,
   ) {
     this.storage.changes.subscribe(({ accountId, accepted }) => {
       if (accountId !== this.messaging.accountId()) {
@@ -79,6 +81,17 @@ export class DataMessagingHistoryService {
       ...(message.sender_id === accountId && { delivery: 'sent' as const }),
     }));
     return { accountId, directory: history.directory, messages };
+  }
+
+  async refreshFromServer(accountId = this.messaging.accountId()): Promise<void> {
+    if (!accountId || accountId !== this.messaging.accountId() || !navigator.onLine) {
+      return;
+    }
+    if (this.session.isOnlineOnly()) {
+      await this.refreshOnline({ afterCurrent: true });
+    } else {
+      await this.sync.requestSync(() => navigator.onLine, accountId);
+    }
   }
 
   async refreshOnline({ afterCurrent = false } = {}): Promise<void> {
