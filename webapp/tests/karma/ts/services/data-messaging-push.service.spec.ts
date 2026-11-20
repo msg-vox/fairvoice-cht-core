@@ -1,9 +1,12 @@
+import { HttpClient, HttpErrorResponse, HttpResponse } from '@angular/common/http';
+import { NgZone } from '@angular/core';
 import { fakeAsync, tick } from '@angular/core/testing';
 import { NavigationEnd, Router } from '@angular/router';
 import { expect } from 'chai';
-import { Subject } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import sinon from 'sinon';
 
+import { DataMessagingPushBridgeService } from '@mm-services/data-messaging-push-bridge.service';
 import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
 import { DataMessagingPushService } from '@mm-services/data-messaging-push.service';
 import { DataMessagingService } from '@mm-services/data-messaging.service';
@@ -19,13 +22,28 @@ describe('DataMessagingPushService', () => {
     recipient_binding: 'binding',
     delivery_id: 'receipt-1',
   };
-  const emit = (fields = {}, type = 'cht:data-message:received') => {
-    window.dispatchEvent(new CustomEvent(type, { detail: { ...detail, ...fields } }));
+  const receive = (message: Record<string, unknown>) => {
+    bridge.onmessage(new MessageEvent('message', { data: JSON.stringify(message) }));
+  };
+  const emit = (fields = {}, type = 'received') => receive({ type, detail: { ...detail, ...fields } });
+  const registered = (recipient_binding = detail.recipient_binding) => {
+    receive({ type: 'registration', account_id: account, recipient_binding });
+  };
+  const sent = (type: string) => bridge.postMessage.args
+    .map(([message]) => JSON.parse(message))
+    .filter(message => message.type === type);
+  const acks = () => sent('acknowledge').map(({ delivery_id, status }) => [delivery_id, status]);
+  const ready = () => sent('ready').map(({ version }) => [version]);
+  const start = () => {
+    service.init();
+    registered();
   };
 
   let service: DataMessagingPushService;
+  let pushBridge: DataMessagingPushBridgeService;
   let bridge;
   let originalBridge;
+  let http;
   let router;
   let messaging;
   let history;
@@ -35,15 +53,12 @@ describe('DataMessagingPushService', () => {
   beforeEach(() => {
     online = true;
     sinon.stub(navigator, 'onLine').get(() => online);
-    originalBridge = window.medicmobile_android;
-    bridge = {
-      getDataMessagePushRegistration: sinon.stub().returns(JSON.stringify({
-        account_id: account, recipient_binding: detail.recipient_binding,
-      })),
-      dataMessagePushReady: sinon.stub(),
-      ackDataMessagePush: sinon.stub(),
-    };
-    window.medicmobile_android = bridge;
+    originalBridge = window.fairvoice_push_registration;
+    bridge = { postMessage: sinon.stub(), onmessage: null };
+    window.fairvoice_push_registration = bridge;
+    http = { post: sinon.stub() };
+    const zone = { run: (callback: () => void) => callback() } as NgZone;
+    pushBridge = new DataMessagingPushBridgeService(http as HttpClient, zone);
     router = {
       events: new Subject(), navigated: true, url: '/reports/add',
       createUrlTree: (segments: string[]) => segments.join('/'),
@@ -59,6 +74,7 @@ describe('DataMessagingPushService', () => {
       router as Router,
       messaging as DataMessagingService,
       history as DataMessagingHistoryService,
+      pushBridge,
     );
     draft = document.createElement('textarea');
     document.body.append(draft);
@@ -67,15 +83,75 @@ describe('DataMessagingPushService', () => {
   afterEach(() => {
     service.ngOnDestroy();
     draft.remove();
-    window.medicmobile_android = originalBridge;
+    window.fairvoice_push_registration = originalBridge;
     sinon.restore();
   });
+
+  it('keeps an ordinary browser idle when the Android bridge is absent', () => {
+    delete window.fairvoice_push_registration;
+    service.init();
+    expect(http.post.called).to.be.false;
+    expect(bridge.postMessage.called).to.be.false;
+  });
+
+  it('posts registration and refresh with the signed-in account and returns only the status and binding',
+    fakeAsync(() => {
+      const account_id = 'org.couchdb.user:clinic:Ǻlice';
+      messaging.accountId.returns(account_id);
+      service.init();
+      expect(sent('session')).to.deep.equal([{ type: 'session', account_id }]);
+      http.post.onFirstCall().returns(of(new HttpResponse({ status: 200, body: { recipient_binding: 'binding' } })));
+      http.post.onSecondCall().returns(throwError(() => new HttpErrorResponse({ status: 409 })));
+      const body = { installation_key: 'key', fcm_token: 'token' };
+      receive({ type: 'request', id: 'first', operation: 'register', account_id, body });
+      receive({ type: 'request', id: 'second', operation: 'refresh', account_id, body });
+      receive({ type: 'request', id: 'mismatch', operation: 'register', account_id: account, body });
+      tick();
+      expect(http.post.args.map(([path]) => path)).to.deep.equal([
+        '/api/v1/data-messaging/push-registrations',
+        '/api/v1/data-messaging/push-registrations/refresh',
+      ]);
+      expect(http.post.firstCall.args[1]).to.deep.equal(body);
+      expect(http.post.firstCall.args[2].headers['X-CHT-Push-Account']).to.equal(encodeURIComponent(account_id));
+      expect(sent('result')).to.have.deep.members([
+        { type: 'result', id: 'first', status: 200, recipient_binding: 'binding' },
+        { type: 'result', id: 'second', status: 409 },
+        { type: 'result', id: 'mismatch', status: 412 },
+      ]);
+    }));
+
+  it('clears registration on logout, completes unregister before sign-out, and stays signed out', fakeAsync(() => {
+    start();
+    let finished = false;
+    void pushBridge.logout()?.then(() => finished = true);
+    expect(pushBridge.registration).to.be.undefined;
+    expect(sent('logout')).to.have.lengthOf(1);
+    http.post.returns(of(new HttpResponse({ status: 204 })));
+    receive({ type: 'request', id: 'last', operation: 'unregister', account_id: account, body: {} });
+    tick();
+    expect(http.post.firstCall.args[0]).to.equal('/api/v1/data-messaging/push-registrations/unregister');
+    expect(sent('result')).to.deep.equal([{ type: 'result', id: 'last', status: 204 }]);
+    expect(finished).to.be.false;
+    receive({ type: 'signed_out' });
+    tick();
+    expect(finished).to.be.true;
+    window.dispatchEvent(new Event('online'));
+    expect(sent('session')).to.have.lengthOf(1);
+  }));
+
+  it('bounds sign-out when Android does not respond', fakeAsync(() => {
+    start();
+    let finished = false;
+    void pushBridge.logout()?.then(() => finished = true);
+    tick(3_000);
+    expect(finished).to.be.true;
+  }));
 
   it('coalesces a burst and replays duplicate acknowledgements without changing an unsaved form', fakeAsync(() => {
     draft.value = 'Unsaved form response';
     draft.focus();
-    service.init();
-    expect(bridge.dataMessagePushReady.args).to.deep.equal([['1']]);
+    start();
+    expect(ready()).to.deep.equal([['1']]);
 
     emit();
     emit();
@@ -87,7 +163,7 @@ describe('DataMessagingPushService', () => {
     tick(100);
     expect(history.refreshFromServer.calledOnce).to.be.true;
     expect(history.refreshFromServer.firstCall.args[0]).to.equal(account);
-    expect(bridge.ackDataMessagePush.args).to.deep.equal([
+    expect(acks()).to.deep.equal([
       ['receipt-1', 'handled'], ['receipt-1', 'handled'], ['receipt-2', 'handled'], ['receipt-1', 'handled'],
     ]);
     expect(router.navigate.called).to.be.false;
@@ -98,30 +174,26 @@ describe('DataMessagingPushService', () => {
 
   it('waits for router and registration readiness and checks the complete binding', fakeAsync(() => {
     router.navigated = false;
-    bridge.getDataMessagePushRegistration.returns('');
     service.init();
     service.init();
     emit();
     router.events.next(new NavigationEnd(1, '/', '/tasks'));
-    expect(bridge.dataMessagePushReady.called).to.be.false;
-    bridge.getDataMessagePushRegistration.returns(JSON.stringify({
-      account_id: account, recipient_binding: 'Binding',
-    }));
-    window.dispatchEvent(new Event('cht:data-message:registration-changed'));
+    expect(ready()).to.be.empty;
+    registered('Binding');
 
     emit();
     emit({ delivery_id: 'invalid-version', version: '2', recipient_binding: 'Binding' });
     tick(100);
-    expect(bridge.dataMessagePushReady.args).to.deep.equal([['1']]);
-    expect(bridge.ackDataMessagePush.args).to.deep.equal([
-      ['receipt-1', 'retry'], ['receipt-1', 'discarded'], ['invalid-version', 'discarded'],
+    expect(ready()).to.deep.equal([['1']]);
+    expect(acks()).to.deep.equal([
+      ['receipt-1', 'discarded'], ['invalid-version', 'discarded'],
     ]);
     expect(history.refreshFromServer.called).to.be.false;
     expect(router.navigate.called).to.be.false;
   }));
 
   it('retains a failed refresh for foreground resume or reconnect', fakeAsync(() => {
-    service.init();
+    start();
     history.refreshFromServer.onFirstCall().rejects();
     history.refreshFromServer.onSecondCall().rejects();
     emit();
@@ -146,7 +218,7 @@ describe('DataMessagingPushService', () => {
 
   it('clears pending work on an account switch before reconnect', fakeAsync(() => {
     online = false;
-    service.init();
+    start();
     emit();
     messaging.accountId.returns('org.couchdb.user:another');
     online = true;
@@ -155,15 +227,15 @@ describe('DataMessagingPushService', () => {
     expect(history.refreshFromServer.called).to.be.false;
   }));
 
-  const tap = (fields = {}) => emit({ delivery_id: 'tap', ...fields }, 'cht:data-message:tapped');
+  const tap = (fields = {}) => emit({ delivery_id: 'tap', ...fields }, 'tapped');
 
   it('waits for a cold-start tap and navigates using the entire sender account ID', fakeAsync(() => {
     router.navigated = false;
-    service.init();
+    start();
     tap();
     tick();
     expect(router.navigate.called).to.be.false;
-    expect(bridge.ackDataMessagePush.lastCall.args).to.deep.equal(['tap', 'retry']);
+    expect(acks()).to.be.empty;
 
     router.events.next(new NavigationEnd(1, '/', '/reports/add'));
     tap();
@@ -171,7 +243,7 @@ describe('DataMessagingPushService', () => {
     tick(100);
     expect(router.navigate.args).to.deep.equal([[['/messages', 'data:org.couchdb.user:clinic:alice']]]);
     expect(history.refreshFromServer.args).to.deep.equal([[account]]);
-    expect(bridge.ackDataMessagePush.lastCall.args).to.deep.equal(['tap', 'handled']);
+    expect(acks().at(-1)).to.deep.equal(['tap', 'handled']);
     tap();
     tick(100);
     expect(router.navigate.calledOnce).to.be.true;
@@ -179,7 +251,7 @@ describe('DataMessagingPushService', () => {
   }));
 
   it('opens two distinct sender threads and skips navigation when a tapped thread is already open', fakeAsync(() => {
-    service.init();
+    start();
     tap();
     tap({ delivery_id: 'second', sender_account_id: 'org.couchdb.user:zone:bob' });
     tick(100);
@@ -190,12 +262,12 @@ describe('DataMessagingPushService', () => {
     tap({ delivery_id: 'new-tap', sender_account_id: 'org.couchdb.user:zone:bob' });
     tick(100);
     expect(router.navigate.calledTwice).to.be.true;
-    expect(bridge.ackDataMessagePush.lastCall.args).to.deep.equal(['new-tap', 'handled']);
+    expect(acks().at(-1)).to.deep.equal(['new-tap', 'handled']);
   }));
 
   it('discards a declined navigation and a tap for an old binding', fakeAsync(() => {
     router.navigate.resolves(false);
-    service.init();
+    start();
     tap();
     tick(100);
     tap();
@@ -203,7 +275,7 @@ describe('DataMessagingPushService', () => {
     tick(100);
     expect(router.navigate.calledOnce).to.be.true;
     expect(history.refreshFromServer.called).to.be.false;
-    expect(bridge.ackDataMessagePush.args).to.deep.equal([
+    expect(acks()).to.deep.equal([
       ['tap', 'discarded'], ['tap', 'discarded'], ['wrong-account', 'discarded'],
     ]);
   }));
@@ -211,7 +283,7 @@ describe('DataMessagingPushService', () => {
   it('runs one follow-up when fresh receipts arrive during a refresh', fakeAsync(() => {
     let finish!: () => void;
     history.refreshFromServer.onFirstCall().returns(new Promise<void>(resolve => finish = resolve));
-    service.init();
+    start();
     emit();
     tick(100);
     emit({ delivery_id: 'receipt-2' });

@@ -248,6 +248,14 @@ describe('Dedicated data messaging storage', () => {
       await assert.rejects(db.medic.get(id), { status: 404 });
     });
 
+    it('rejects a registration when the WebView and authenticated accounts differ', async () => {
+      const install = installation();
+      const expectedAccount = { 'X-CHT-Push-Account': encodeURIComponent(accountId(recipient)) };
+      assert.equal((await post('', install, sender, expectedAccount)).status, 412);
+      await assert.rejects(db.vault.get(docId(install.installation_key)), { status: 404 });
+      await register(install, recipient, expectedAccount);
+    });
+
     it('rotates the token without changing the binding and rejects refreshes from a stale token', async () => {
       const first = installation();
       const binding = await register(first);

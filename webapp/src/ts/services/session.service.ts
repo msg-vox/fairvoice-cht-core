@@ -4,6 +4,7 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { CookieService } from 'ngx-cookie-service';
 import { DOCUMENT } from '@angular/common';
 
+import { DataMessagingPushBridgeService } from '@mm-services/data-messaging-push-bridge.service';
 import { LocationService } from '@mm-services/location.service';
 import { USER_ROLES } from '@medic/constants';
 
@@ -21,7 +22,8 @@ export class SessionService {
     private cookieService: CookieService,
     private http: HttpClient,
     @Inject(DOCUMENT) private document: Document,
-    private location: LocationService
+    private location: LocationService,
+    private pushBridge: DataMessagingPushBridgeService
   ) {}
 
   navigateToLogin(explicitLogout = false) {
@@ -42,7 +44,11 @@ export class SessionService {
     this.document.location.href = `/${this.location.dbName}/login?${params.toString()}`;
   }
 
-  logout(explicitLogout = true) {
+  async logout(explicitLogout = true) {
+    const pushLogout = this.pushBridge.logout();
+    if (pushLogout) {
+      await pushLogout;
+    }
     return this.http
       .delete('/_session', this.httpOptions)
       .toPromise()
@@ -102,8 +108,7 @@ export class SessionService {
         const name = value && value.userCtx && value.userCtx.name;
         if (name !== userCtx.name) {
           // connected to the internet but server session is different
-          this.logout(false);
-          return;
+          return this.logout(false).then(() => undefined);
         }
         if (_.difference(userCtx.roles, value!.userCtx.roles).length ||
           _.difference(value!.userCtx.roles, userCtx.roles).length) {

@@ -7,6 +7,7 @@ import { DOCUMENT } from '@angular/common';
 import { USER_ROLES } from '@medic/constants';
 const { COUCHDB_ADMIN } = USER_ROLES;
 
+import { DataMessagingPushBridgeService } from '@mm-services/data-messaging-push-bridge.service';
 import { SessionService } from '@mm-services/session.service';
 import { LocationService } from '@mm-services/location.service';
 import { CookieService } from 'ngx-cookie-service';
@@ -91,6 +92,20 @@ describe('Session service', () => {
     expect(consoleWarnMock.args[0][0]).to.equal('User must reauthenticate');
   });
 
+  it('keeps the HTTP session until Android finishes unregistering', async () => {
+    sinon.stub(console, 'warn');
+    let finish!: () => void;
+    const pushLogout = new Promise<void>(resolve => finish = resolve);
+    sinon.stub(TestBed.inject(DataMessagingPushBridgeService), 'logout').returns(pushLogout);
+    $httpBackend.delete.withArgs('/_session').returns(of());
+
+    const logout = service.logout();
+    expect($httpBackend.delete.called).to.be.false;
+    finish();
+    await logout;
+    expect($httpBackend.delete.calledOnceWith('/_session')).to.be.true;
+  });
+
   it('logs out if no user context', async () => {
     const consoleWarnMock = sinon.stub(console, 'warn');
     cookieGet.returns(JSON.stringify({}));
@@ -131,7 +146,7 @@ describe('Session service', () => {
     cookieGet.returns(JSON.stringify(userCtxExpected));
     location.href = 'CURRENT_URL';
     Location.dbName = 'DB_NAME';
-    $httpBackend.get.withArgs('/_session').returns(of([{ data: { userCtx: { name: 'jimmy' } } }]));
+    $httpBackend.get.withArgs('/_session').returns(of({ userCtx: { name: 'jimmy' } }));
     $httpBackend.delete.withArgs('/_session').returns(of());
     await service.init();
     expect(location.href).to.equal(`/DB_NAME/login?redirect=CURRENT_URL&username=${userCtxExpected.name}`);
@@ -142,7 +157,7 @@ describe('Session service', () => {
 
   it('does not log out if remote userCtx consistent', async () => {
     cookieGet.returns(JSON.stringify({ name: 'bryan' }));
-    $httpBackend.get.withArgs('/_session').returns(of([{ data: { userCtx: { name: 'bryan' } } }]));
+    $httpBackend.get.withArgs('/_session').returns(of({ userCtx: { name: 'bryan' } }));
     await service.init();
     expect(cookieDelete.callCount).to.equal(0);
   });

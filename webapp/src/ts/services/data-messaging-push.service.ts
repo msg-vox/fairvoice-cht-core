@@ -7,9 +7,8 @@ import { PREFIXES } from '@medic/constants';
 import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
 import { DataMessagingService } from '@mm-services/data-messaging.service';
 
-const RECEIVED = 'cht:data-message:received';
-const TAPPED = 'cht:data-message:tapped';
-const REGISTRATION_CHANGED = 'cht:data-message:registration-changed';
+import { DataMessagingPushBridgeService, isPushBinding } from '@mm-services/data-messaging-push-bridge.service';
+
 const COALESCE_MS = 75;
 const THREAD_MATCH: IsActiveMatchOptions = {
   paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored',
@@ -27,7 +26,6 @@ type PushSession = {
 };
 
 const isNonempty = (value: unknown): value is string => typeof value === 'string' && !!value.trim();
-const isBinding = (value: unknown): value is string => typeof value === 'string' && /^[!-~]{1,128}$/.test(value);
 const isMessageId = (id: unknown): boolean => typeof id === 'string' && id.startsWith(PREFIXES.DATA_MESSAGE) &&
   id === id.toLowerCase() && isUuid(id.slice(PREFIXES.DATA_MESSAGE.length));
 
@@ -43,39 +41,39 @@ export class DataMessagingPushService implements OnDestroy {
     private router: Router,
     private messaging: DataMessagingService,
     private history: DataMessagingHistoryService,
+    private bridge: DataMessagingPushBridgeService,
   ) {}
 
   init(): void {
-    const bridge = window.medicmobile_android;
-    if (!bridge || this.subscriptions.closed || this.initialized ||
-        typeof bridge.getDataMessagePushRegistration !== 'function' ||
-        typeof bridge.dataMessagePushReady !== 'function' || typeof bridge.ackDataMessagePush !== 'function') {
+    if (this.subscriptions.closed || this.initialized || !this.bridge.connect(() => this.messaging.accountId())) {
       return;
     }
 
     this.initialized = true;
-    this.subscriptions.add(fromEvent(window, RECEIVED).subscribe(event => this.handle(event as CustomEvent)));
-    this.subscriptions.add(fromEvent(window, TAPPED).subscribe(event => this.handle(event as CustomEvent)));
-    this.subscriptions.add(fromEvent(window, REGISTRATION_CHANGED).subscribe(() => this.resume()));
-    this.subscriptions.add(fromEvent(window, 'online').subscribe(() => this.resume()));
-    this.subscriptions.add(fromEvent(window, 'focus').subscribe(() => this.resume()));
+    this.subscriptions.add(this.bridge.deliveries.subscribe(message => this.handle(message.type, message.detail)));
+    this.subscriptions.add(this.bridge.changes.subscribe(() => this.resume()));
+    this.subscriptions.add(fromEvent(window, 'online').subscribe(() => this.syncSession()));
+    this.subscriptions.add(fromEvent(window, 'focus').subscribe(() => this.syncSession()));
     this.subscriptions.add(fromEvent(document, 'visibilitychange').subscribe(() => {
       if (document.visibilityState === 'visible') {
-        this.resume();
+        this.syncSession();
       }
     }));
     this.subscriptions.add(this.router.events.subscribe(event => {
       if (event instanceof NavigationEnd) {
         this.routerReady = true;
-        this.resume();
+        this.syncSession();
       }
     }));
     this.routerReady = this.router.navigated;
-    this.resume();
+    this.syncSession();
   }
 
   ngOnDestroy(): void {
     this.subscriptions.unsubscribe();
+    if (this.initialized) {
+      this.bridge.disconnect();
+    }
     this.clearSession();
   }
 
@@ -85,21 +83,9 @@ export class DataMessagingPushService implements OnDestroy {
     this.current = undefined;
   }
 
-  private getRegistration(): Registration | undefined {
-    try {
-      const registration = JSON.parse(window.medicmobile_android?.getDataMessagePushRegistration()) as Registration;
-      if (isNonempty(registration?.account_id) && registration.account_id === this.messaging.accountId() &&
-          isBinding(registration.recipient_binding)) {
-        return registration;
-      }
-    } catch {
-      // The bridge can be between sign-in associations or removed during navigation.
-    }
-  }
-
   private updateSession(): PushSession | undefined {
-    const registration = this.routerReady ? this.getRegistration() : undefined;
-    if (!registration) {
+    const registration = this.bridge.registration;
+    if (!this.routerReady || !registration || registration.account_id !== this.messaging.accountId()) {
       this.clearSession();
       return;
     }
@@ -111,28 +97,24 @@ export class DataMessagingPushService implements OnDestroy {
         registration, outcomes: new Map(), taps: new Set(), tapQueue: Promise.resolve(),
         pending: false, refreshing: false,
       };
-      window.medicmobile_android.dataMessagePushReady('1');
+      this.bridge.ready(registration);
     }
     return this.current;
   }
 
-  private handle(event: CustomEvent): void {
-    const detail = event.detail;
-    if (!isNonempty(detail?.delivery_id)) {
+  private handle(type: 'received' | 'tapped', detail: Record<string, unknown>): void {
+    const id = detail.delivery_id;
+    if (!isNonempty(id)) {
       return;
     }
     const current = this.updateSession();
-    const ack = (status: TerminalStatus | 'retry') => {
-      if (status !== 'retry') {
-        current?.outcomes.set(detail.delivery_id, status);
-      }
-      try {
-        window.medicmobile_android?.ackDataMessagePush(detail.delivery_id, status);
-      } catch {
-        // Android can replay the delivery if the acknowledgement could not cross the bridge.
+    const ack = (status: TerminalStatus) => {
+      if (current) {
+        current.outcomes.set(id, status);
+        this.bridge.acknowledge(current.registration, id, status);
       }
     };
-    const previous = current?.outcomes.get(detail.delivery_id);
+    const previous = current?.outcomes.get(id);
     if (previous) {
       ack(previous);
       return;
@@ -140,21 +122,20 @@ export class DataMessagingPushService implements OnDestroy {
     if (detail.version !== '1' || detail.event !== 'data_message' || !isMessageId(detail.message_id) ||
         typeof detail.sender_account_id !== 'string' || !detail.sender_account_id.startsWith(PREFIXES.COUCH_USER) ||
         !detail.sender_account_id.slice(PREFIXES.COUCH_USER.length).trim() || !isNonempty(detail.sender_display_name) ||
-        !isBinding(detail.recipient_binding)) {
+        !isPushBinding(detail.recipient_binding)) {
       ack('discarded');
       return;
     }
 
     if (!current) {
-      ack('retry');
       return;
     }
     if (detail.recipient_binding !== current.registration.recipient_binding) {
       ack('discarded');
       return;
     }
-    if (event.type === TAPPED) {
-      const { delivery_id: id, sender_account_id: sender } = detail;
+    if (type === 'tapped') {
+      const sender = detail.sender_account_id;
       if (!current.taps.has(id)) {
         current.taps.add(id);
         current.tapQueue = current.tapQueue.then(async () => {
@@ -189,6 +170,11 @@ export class DataMessagingPushService implements OnDestroy {
     } catch {
       return 'discarded';
     }
+  }
+
+  private syncSession(): void {
+    this.bridge.syncSession();
+    this.resume();
   }
 
   private resume(): void {

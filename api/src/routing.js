@@ -86,7 +86,7 @@ const replication = require('./controllers/replication');
 const app = express.Router({ strict: true });
 const asyncLocalStorage = require('./services/async-storage');
 const moment = require('moment');
-const { MAX_REQUEST_SIZE } = require('@medic/constants');
+const { MAX_REQUEST_SIZE, PREFIXES } = require('@medic/constants');
 
 // requires content-type application/x-www-form-urlencoded header
 const formParser = bodyParser.urlencoded({ limit: MAX_REQUEST_SIZE, extended: false });
@@ -801,6 +801,11 @@ const pushRegistrationMiddleware = [
   },
   authorization.handleAuthErrors,
   (req, res, next) => {
+    const expectedAccount = req.get('X-CHT-Push-Account');
+    if (expectedAccount !== undefined &&
+        expectedAccount !== encodeURIComponent(PREFIXES.COUCH_USER + req.userCtx.name)) {
+      return res.status(412).json({ message: 'Push registration session changed' });
+    }
     pushRegistrationParser(req, res, err => {
       if (err) {
         // Parser errors can include the original body with installation credentials.
