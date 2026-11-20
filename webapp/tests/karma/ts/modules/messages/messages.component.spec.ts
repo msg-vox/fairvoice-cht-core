@@ -13,6 +13,7 @@ import { of, Subject } from 'rxjs';
 import { MessagesComponent } from '@mm-modules/messages/messages.component';
 import { ChangesService } from '@mm-services/changes.service';
 import { MessageContactService } from '@mm-services/message-contact.service';
+import { ResponsiveService } from '@mm-services/responsive.service';
 import { RelativeDatePipe } from '@mm-pipes/date.pipe';
 import { SettingsService } from '@mm-services/settings.service';
 import { ModalService } from '@mm-services/modal.service';
@@ -179,6 +180,37 @@ describe('Messages Component', () => {
     tick(100);
     expect(dataConversations.getConversations.calledOnce).to.be.true;
     expect(setConversations.lastCall.args[0][1].read).to.be.true;
+  }));
+
+  it('selects the first desktop conversation when a refresh supersedes the initial data load', fakeAsync(() => {
+    const navigate = sinon.stub(TestBed.inject(Router), 'navigate').resolves(true);
+    sinon.stub(TestBed.inject(ResponsiveService), 'isMobile').returns(false);
+    let resolveInitial!: (threads: []) => void;
+    const initialLoad = new Promise<[]>(resolve => {
+      resolveInitial = resolve;
+    });
+    const id = 'org.couchdb.user:peer';
+    const thread = {
+      id, type: 'data', name: 'Peer', messages: [{ read: false, doc: { created_at: 2, text: 'Incoming' } }],
+    };
+
+    fixture.destroy();
+    dataConversations.getConversations.resetHistory();
+    dataConversations.getConversations.onFirstCall().returns(initialLoad);
+    dataConversations.getConversations.resolves([thread]);
+    fixture = TestBed.createComponent(MessagesComponent);
+    fixture.detectChanges();
+    tick();
+    expect(navigate.called).to.be.false;
+
+    dataHistory.changes.next();
+    tick(100);
+    expect(navigate.calledOnceWithExactly(['/messages', `data:${id}`])).to.be.true;
+
+    resolveInitial([]);
+    dataHistory.changes.next();
+    tick(100);
+    expect(navigate.calledOnce).to.be.true;
   }));
 
   it('refreshes dashboard history on a timer and reconnect while the inbox is open', fakeAsync(() => {

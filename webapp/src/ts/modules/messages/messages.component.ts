@@ -57,6 +57,7 @@ export class MessagesComponent implements OnInit, OnDestroy {
   private dataConversations: Record<string, any>[] = [];
   private readonly dataReadChanges = new Subject<void>();
   private dataRequest = 0;
+  private initialDataSelectionPending = true;
   readonly buttonType = ButtonType;
   readonly dataConversationType = DATA_CONVERSATION;
 
@@ -94,7 +95,7 @@ export class MessagesComponent implements OnInit, OnDestroy {
     this.updateConversations().then(() => this.displayFirstConversation(this.conversations));
     this.watchForChanges();
     this.watchDataConversations();
-    void this.updateDataConversations(true);
+    void this.updateDataConversations();
   }
 
   ngOnDestroy(): void {
@@ -178,7 +179,7 @@ export class MessagesComponent implements OnInit, OnDestroy {
     });
   }
 
-  private async updateDataConversations(initial = false) {
+  private async updateDataConversations() {
     const request = ++this.dataRequest;
     try {
       const threads = await this.dataMessagingConversations.getConversations();
@@ -199,9 +200,13 @@ export class MessagesComponent implements OnInit, OnDestroy {
         };
       });
       const sms = this.conversations.filter(conversation => conversation.type !== DATA_CONVERSATION);
-      this.messagesActions.setConversations([...sms, ...this.dataConversations]);
-      if (initial && !this.loading) {
-        this.displayFirstConversation(this.conversations);
+      const conversations = [...sms, ...this.dataConversations];
+      this.messagesActions.setConversations(conversations);
+      if (this.initialDataSelectionPending) {
+        this.initialDataSelectionPending = false;
+        if (!this.loading) {
+          this.displayFirstConversation(conversations);
+        }
       }
     } catch {
       if (!this.destroyed && request === this.dataRequest) {
