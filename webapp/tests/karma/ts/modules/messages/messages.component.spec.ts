@@ -151,7 +151,7 @@ describe('Messages Component', () => {
   });
 
   it('refreshes data previews and unread state alongside SMS without sharing thread keys', fakeAsync(() => {
-    sinon.stub(TestBed.inject(Router), 'navigate').resolves(true);
+    const navigate = sinon.stub(TestBed.inject(Router), 'navigate').resolves(true);
     const id = 'org.couchdb.user:peer';
     const sms = { key: id, type: 'contact', message: 'SMS', read: true, date: 1 };
     component.conversations = [sms];
@@ -164,6 +164,7 @@ describe('Messages Component', () => {
     dataHistory.changes.next();
     tick(100);
     const [smsRow, dataRow] = setConversations.lastCall.args[0];
+    expect(navigate.called).to.be.false;
     expect(smsRow).to.equal(sms);
     expect(dataRow).to.include({ key: id, type: 'data', message: 'Reply', date: 3, read: false });
     expect(component.listTrackBy(0, dataRow)).not.to.equal(component.listTrackBy(0, smsRow));

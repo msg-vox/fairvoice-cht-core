@@ -55,6 +55,19 @@ describe('DataMessagingHistoryService', () => {
     expect(storage.open.called).to.be.false;
   });
 
+  it('shares one fresh download after a dashboard refresh already in progress', async () => {
+    messaging.getSyncPage.onFirstCall().resolves(page);
+    messaging.getSyncPage.onSecondCall().resolves({ ...page, messages: [incoming], next_since: 'page-2' });
+    const initial = service.refreshOnline();
+    const firstReceipt = service.refreshOnline({ afterCurrent: true });
+    const secondReceipt = service.refreshOnline({ afterCurrent: true });
+
+    await Promise.all([initial, firstReceipt, secondReceipt]);
+
+    expect(messaging.getSyncPage.args).to.deep.equal([[undefined], ['page-1']]);
+    expect((await service.read()).messages[0].message._id).to.equal(incoming._id);
+  });
+
   it('shows a dashboard acknowledgement immediately and deduplicates the later download', async () => {
     const reply = { ...incoming, _id: 'data-message:2', sender_id: accountId, recipient_id: peer };
     messaging.getSyncPage.onFirstCall().resolves(page);

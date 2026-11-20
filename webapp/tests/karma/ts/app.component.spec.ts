@@ -11,6 +11,7 @@ import { MockStore, provideMockStore } from '@ngrx/store/testing';
 import { AppComponent } from '../../../src/ts/app.component';
 import { DBSyncService } from '@mm-services/db-sync.service';
 import { LanguageService, SetLanguageService } from '@mm-services/language.service';
+import { DataMessagingPushService } from '@mm-services/data-messaging-push.service';
 import { SessionService } from '@mm-services/session.service';
 import { AuthService } from '@mm-services/auth.service';
 import { CustomResourceService } from '@mm-services/custom-resource.service';
@@ -232,6 +233,7 @@ describe('AppComponent', () => {
           { provide: LanguageService, useValue: languageService },
           { provide: SetLanguageService, useValue: setLanguageService },
           { provide: SessionService, useValue: sessionService },
+          { provide: DataMessagingPushService, useValue: { init: sinon.stub() } },
           { provide: AuthService, useValue: authService },
           { provide: CustomResourceService, useValue: customResourceService },
           { provide: ChangesService, useValue: changesService },

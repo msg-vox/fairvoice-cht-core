@@ -94,7 +94,7 @@ export class MessagesComponent implements OnInit, OnDestroy {
     this.updateConversations().then(() => this.displayFirstConversation(this.conversations));
     this.watchForChanges();
     this.watchDataConversations();
-    void this.updateDataConversations();
+    void this.updateDataConversations(true);
   }
 
   ngOnDestroy(): void {
@@ -178,7 +178,7 @@ export class MessagesComponent implements OnInit, OnDestroy {
     });
   }
 
-  private async updateDataConversations() {
+  private async updateDataConversations(initial = false) {
     const request = ++this.dataRequest;
     try {
       const threads = await this.dataMessagingConversations.getConversations();
@@ -200,7 +200,7 @@ export class MessagesComponent implements OnInit, OnDestroy {
       });
       const sms = this.conversations.filter(conversation => conversation.type !== DATA_CONVERSATION);
       this.messagesActions.setConversations([...sms, ...this.dataConversations]);
-      if (!this.loading) {
+      if (initial && !this.loading) {
         this.displayFirstConversation(this.conversations);
       }
     } catch {

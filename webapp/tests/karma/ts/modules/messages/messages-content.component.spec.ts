@@ -180,10 +180,27 @@ describe('MessagesContentComponent', () => {
     expect(fixture.nativeElement.querySelector('#data-message-draft').disabled).to.be.false;
 
     const downloaded = { ...incoming, _id: 'data-message:third', text: 'Another message' };
-    const archived = { ...thread, name: id, recipient: undefined, messages: [
+    tick();
+    const draft = fixture.nativeElement.querySelector('#data-message-draft');
+    draft.value = 'Unsent reply';
+    draft.dispatchEvent(new Event('input'));
+    const refreshed = { ...thread, messages: [
       { ...thread.messages[0], read: true }, thread.messages[1],
       { id: downloaded._id, doc: downloaded, outgoing: false, read: false },
     ] };
+    dataConversations.getConversations.resolves([refreshed]);
+    dataHistory.changes.next();
+    tick(100);
+    expect(setSelected.lastCall.args[0]).to.equal(refreshed);
+    component.selectedConversation = refreshed;
+    fixture.detectChanges();
+    tick();
+    expect(fixture.nativeElement.querySelector('#data-message-draft')).to.equal(draft);
+    expect(draft.value).to.equal('Unsent reply');
+    expect(markReadService.markAsRead.lastCall.args[0]).to.deep.equal([downloaded]);
+
+    const archived = { ...refreshed, name: id, recipient: undefined,
+      messages: refreshed.messages.map(message => ({ ...message, read: true })) };
     dataConversations.getConversations.resolves([archived]);
     dataHistory.changes.next();
     tick(100);

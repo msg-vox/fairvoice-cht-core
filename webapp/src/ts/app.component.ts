@@ -23,6 +23,7 @@ import { FormatDateService } from '@mm-services/format-date.service';
 import { XmlFormsService } from '@mm-services/xml-forms.service';
 import { JsonFormsService } from '@mm-services/json-forms.service';
 import { TranslateFromService } from '@mm-services/translate-from.service';
+import { DataMessagingPushService } from '@mm-services/data-messaging-push.service';
 import { CountMessageService } from '@mm-services/count-message.service';
 import { PrivacyPoliciesService } from '@mm-services/privacy-policies.service';
 import { LanguageService, SetLanguageService } from '@mm-services/language.service';
@@ -148,6 +149,7 @@ export class AppComponent implements OnInit, AfterViewInit {
     private readonly jsonFormsService:JsonFormsService,
     private readonly translateFromService:TranslateFromService,
     private readonly countMessageService:CountMessageService,
+    private readonly dataMessagingPushService:DataMessagingPushService,
     private readonly privacyPoliciesService:PrivacyPoliciesService,
     private readonly routeSnapshotService:RouteSnapshotService,
     private readonly checkDateService:CheckDateService,
@@ -310,6 +312,7 @@ export class AppComponent implements OnInit, AfterViewInit {
     this.recordStartupTelemetry();
     this.subscribeToStore();
     this.setupRouter();
+    this.dataMessagingPushService.init();
     this.loadTranslations();
     this.setupDb();
     this.countMessageService.init();

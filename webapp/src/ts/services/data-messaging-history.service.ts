@@ -13,6 +13,7 @@ type OnlineHistory = {
   messages: Map<string, DataMessage>;
   since?: string;
   refresh?: Promise<void>;
+  followUp?: Promise<void>;
 };
 
 export type DataMessagingHistory = {
@@ -80,12 +81,23 @@ export class DataMessagingHistoryService {
     return { accountId, directory: history.directory, messages };
   }
 
-  async refreshOnline(): Promise<void> {
+  async refreshOnline({ afterCurrent = false } = {}): Promise<void> {
     const accountId = this.messaging.accountId();
     if (!accountId || !this.session.isOnlineOnly()) {
       return;
     }
     const history = this.getOnlineHistory(accountId);
+    if (afterCurrent && history.refresh) {
+      const refresh = () => {
+        history.followUp = undefined;
+        if (this.messaging.accountId() === accountId) {
+          return this.refreshOnline();
+        }
+      };
+      history.followUp ??= history.refresh.then(refresh, refresh);
+      await history.followUp;
+      return;
+    }
     history.refresh ??= this.download(history).finally(() => history.refresh = undefined);
     await history.refresh;
   }
