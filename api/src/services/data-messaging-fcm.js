@@ -12,13 +12,27 @@ const retryAfterMs = value => {
   return /^\d+$/.test(value) ? Number(value) * 1000 : Math.max(0, Date.parse(value) - Date.now()) || 0;
 };
 
+const getAccessToken = async (auth, signal) => {
+  signal.throwIfAborted();
+  let abort;
+  const deadline = new Promise((resolve, reject) => {
+    abort = () => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+  });
+  try {
+    return await Promise.race([auth.getAccessToken(), deadline]);
+  } finally {
+    signal.removeEventListener('abort', abort);
+  }
+};
+
 const createSender = projectId => {
   const auth = new GoogleAuth({ scopes: [SCOPE] });
   const url = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/messages:send`;
 
   return async (prepareMessage, expiresAt, leaseUntil) => {
     const signal = AbortSignal.timeout(REQUEST_TIMEOUT);
-    const accessToken = await auth.getAccessToken();
+    const accessToken = await getAccessToken(auth, signal);
     if (!accessToken) {
       throw new Error('Firebase access token unavailable');
     }

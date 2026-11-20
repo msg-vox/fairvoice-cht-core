@@ -118,6 +118,27 @@ describe('Data message push dispatch', () => {
     sinon.assert.notCalled(fetchStub);
   });
 
+  it('schedules a retry when the OAuth credential deadline expires', async () => {
+    const controller = new AbortController();
+    const timeout = sinon.stub(AbortSignal, 'timeout').returns(controller.signal);
+    accessToken.onFirstCall().callsFake(() => {
+      controller.abort(new Error('Deadline expired'));
+      return new Promise(() => {});
+    });
+
+    await processPage();
+    sinon.assert.calledOnceWithExactly(timeout, 10000);
+    sinon.assert.notCalled(fetchStub);
+    const job = docs.get(jobId);
+    assert.equal(job.attempts, 1);
+    assert.equal(job.status, undefined);
+
+    timeout.restore();
+    clock.tick(job.next_attempt_at - now);
+    await processPage();
+    assert.equal(docs.get(jobId).status, 'sent');
+  });
+
   it('drops expired jobs and jobs created before the queue recorded a timestamp', async () => {
     clock.tick(300000);
     await processPage();
