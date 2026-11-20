@@ -314,6 +314,7 @@ const getSyncPage = async (accountId, since) => {
 
 module.exports = {
   getConfig,
+  getSenderDisplayName: accountId => users.getMessagingDisplayName(getUsername(accountId)),
   getSyncPage,
   rebuildDirectories,
   send,

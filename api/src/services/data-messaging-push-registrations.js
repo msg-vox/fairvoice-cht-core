@@ -120,4 +120,17 @@ const listActiveForAccount = async accountId => {
     .map(({ _id, recipient_binding }) => ({ _id, recipient_binding }));
 };
 
-module.exports = { register, refresh, unregister, listActiveForAccount };
+const getCurrent = async job => {
+  const registration = await getRegistration(job.installation_id);
+  if (registration?.type === REGISTRATION_TYPE && registration.account_id === job.recipient_account_id &&
+      registration.recipient_binding === job.recipient_binding && registration.fcm_token) {
+    return registration;
+  }
+};
+
+const retireToken = async registration => {
+  // The revision check protects refreshes and account switches while FCM is responding.
+  await db.vault.put({ ...registration, fcm_token: null });
+};
+
+module.exports = { register, refresh, unregister, listActiveForAccount, getCurrent, retireToken };

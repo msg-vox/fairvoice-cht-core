@@ -6,6 +6,7 @@ const registrations = require('./data-messaging-push-registrations');
 
 const CHECKPOINT_ID = 'data-message-push-checkpoint';
 const JOB_TYPE = 'data_message_push_job';
+const JOB_PREFIX = 'data-message-push-job:';
 const PAGE_SIZE = 100;
 const POLL_DELAY = 5000;
 
@@ -26,8 +27,9 @@ const getCheckpoint = async activationSequence => {
 const enqueue = async (message, installation) => {
   try {
     await db.vault.put({
-      _id: `data-message-push-job:${message._id}:${installation._id}`,
+      _id: `${JOB_PREFIX}${message._id}:${installation._id}`,
       type: JOB_TYPE,
+      queued_at: Date.now(),
       message_id: message._id,
       sender_account_id: message.sender_id,
       recipient_account_id: message.recipient_id,
@@ -95,4 +97,4 @@ const start = () => {
   void poll();
 };
 
-module.exports = { start, processPage };
+module.exports = { start, processPage, JOB_PREFIX, JOB_TYPE };

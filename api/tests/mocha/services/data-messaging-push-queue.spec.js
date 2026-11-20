@@ -73,8 +73,9 @@ describe('Data message push queue', () => {
 
     assert.equal(changes.firstCall.args[0].since, activation);
     assert.deepEqual(jobs().map(job => job.recipient_binding), ['binding', 'binding2']);
-    const [{ _rev, _id, ...job }] = jobs();
+    const [{ _rev, _id, queued_at, ...job }] = jobs();
     assert.ok(_rev);
+    assert.ok(Number.isFinite(queued_at));
     assert.equal(_id, `data-message-push-job:${message._id}:${registration._id}`);
     assert.deepEqual(job, {
       type: 'data_message_push_job',

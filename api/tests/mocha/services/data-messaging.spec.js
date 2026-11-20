@@ -267,6 +267,13 @@ describe('Data messaging contract', () => {
         assert.deepEqual(put.args, [[message]]);
       });
 
+      it('accepts a new message independently of Firebase availability', async () => {
+        const request = sinon.stub(globalThis, 'fetch').rejects(new Error('Firebase unavailable'));
+        assert.equal(await send(), true);
+        sinon.assert.calledOnce(put);
+        sinon.assert.notCalled(request);
+      });
+
       it('acknowledges a stored match with the pilot disabled and rejects changes', async () => {
         read.resolves({ ...message, _rev: '1-test' });
         getSettings.returns({ enabled: false });

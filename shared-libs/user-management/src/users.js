@@ -896,6 +896,22 @@ const mapMessagingAccount = (user, settings) => {
   }
 };
 
+const getDisplayName = (username, settings) => {
+  const fullname = typeof settings?.fullname === 'string' && settings.fullname.trim();
+  return fullname || username;
+};
+
+const getMessagingDisplayName = async username => {
+  try {
+    return getDisplayName(username, await getUserDoc(username, 'medic'));
+  } catch (err) {
+    if (err.status !== 404) {
+      throw err;
+    }
+    return username;
+  }
+};
+
 const listMessagingAccounts = async () => {
   const [logins, settings] = await getUsersAndSettings();
   const settingsById = new Map(settings.map(doc => [doc._id, doc]));
@@ -905,8 +921,7 @@ const listMessagingAccounts = async () => {
     if (!account) {
       return [];
     }
-    const fullname = typeof settings.fullname === 'string' && settings.fullname.trim();
-    return [{ ...account, displayName: fullname || login.name }];
+    return [{ ...account, displayName: getDisplayName(login.name, settings) }];
   });
 };
 
@@ -1082,6 +1097,7 @@ module.exports = {
   getUserDoc: (username) => getUserDoc(username, 'users'),
   getUserSettings,
   getMessagingAccount,
+  getMessagingDisplayName,
   listMessagingAccounts,
   /**
    * Take the request data and create valid user, user-settings and contact
