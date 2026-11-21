@@ -54,6 +54,7 @@ const impact = require('./controllers/impact');
 const targetController = require('./controllers/target');
 const credentials = require('./controllers/credentials');
 const dataMessaging = require('./controllers/data-messaging');
+const logPushDebug = require('./services/data-messaging-push-debug');
 const archive = require('./controllers/archive');
 const authorization = require('./middleware/authorization');
 const deprecation = require('./middleware/deprecation');
@@ -797,6 +798,12 @@ const pushRegistrationParser = bodyParser.json({ limit: '32kb' });
 const pushRegistrationMiddleware = [
   (req, res, next) => {
     res.set('Cache-Control', 'no-store');
+    if (process.env.DATA_MESSAGE_PUSH_DEBUG === 'true') {
+      const started = Date.now();
+      res.once('finish', () => logPushDebug(
+        'Registration route %s returned HTTP %s in %s ms', req.route.path, res.statusCode, Date.now() - started
+      ));
+    }
     next();
   },
   authorization.handleAuthErrors,

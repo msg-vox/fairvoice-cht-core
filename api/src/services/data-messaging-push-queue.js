@@ -3,6 +3,7 @@ const { DOC_TYPES, PREFIXES } = require('@medic/constants');
 const { validate: isUuid } = require('uuid');
 const db = require('../db');
 const registrations = require('./data-messaging-push-registrations');
+const logPushDebug = require('./data-messaging-push-debug');
 
 const CHECKPOINT_ID = 'data-message-push-checkpoint';
 const JOB_TYPE = 'data_message_push_job';
@@ -59,6 +60,7 @@ const processPage = async activationSequence => {
   for (const { doc } of results) {
     if (isMessageCreate(doc)) {
       const installations = await registrations.listActiveForAccount(doc.recipient_id);
+      logPushDebug('Queue found %s active recipient installations for a new message', installations.length);
       for (const installation of installations) {
         await enqueue(doc, installation);
       }
@@ -73,6 +75,7 @@ const processPage = async activationSequence => {
 const start = () => {
   const activationSequence = process.env.DATA_MESSAGE_PUSH_ACTIVATION_SEQUENCE?.trim();
   if (!activationSequence) {
+    logPushDebug('Queue inactive because activation sequence is unset');
     return;
   }
   if (activationSequence === 'now') {
@@ -80,6 +83,7 @@ const start = () => {
     return;
   }
 
+  logPushDebug('Queue active');
   const poll = async () => {
     let delay = POLL_DELAY;
     try {

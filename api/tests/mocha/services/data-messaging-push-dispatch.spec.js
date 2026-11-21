@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const sinon = require('sinon');
 const { GoogleAuth } = require('google-auth-library');
+const logger = require('@medic/logger');
 const db = require('../../../src/db');
 const messaging = require('../../../src/services/data-messaging');
 const fcm = require('../../../src/services/data-messaging-fcm');
@@ -89,6 +90,29 @@ describe('Data message push dispatch', () => {
     assert.equal(docs.get(jobId).status, 'sent');
     await processPage();
     sinon.assert.calledOnce(fetchStub);
+  });
+
+  it('traces a Firebase project mismatch without recording response text or credentials', async () => {
+    sinon.stub(process, 'env').value({ ...process.env, DATA_MESSAGE_PUSH_DEBUG: 'true' });
+    const info = sinon.stub(logger, 'info');
+    fetchStub.resolves(Response.json({
+      error: {
+        message: 'private Firebase response text',
+        details: [{ '@type': 'type.googleapis.com/google.firebase.fcm.v1.FcmError', errorCode: 'SENDER_ID_MISMATCH' }],
+      },
+    }, { status: 403 }));
+    await processPage();
+    assert.equal(docs.get(jobId).status, 'failed');
+    assert.equal(docs.get(installationId).fcm_token, 'current-token');
+    sinon.assert.calledWithExactly(info, '[Fairvoice push] Firebase returned HTTP %s', 403);
+    sinon.assert.calledWithExactly(
+      info, '[Fairvoice push] Firebase rejection classification: %s', 'SENDER_ID_MISMATCH'
+    );
+    const trace = JSON.stringify(info.args);
+    const redacted = ['private Firebase response text', 'runtime-access-token', 'current-token', messageId, sender];
+    for (const value of redacted) {
+      assert.equal(trace.includes(value), false);
+    }
   });
 
   it('uses the full username when sender settings are missing', async () => {

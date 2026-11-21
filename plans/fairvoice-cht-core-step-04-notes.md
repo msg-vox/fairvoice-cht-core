@@ -28,3 +28,9 @@ Keep `DATA_MESSAGE_PUSH_SEND_ENABLED` unset until a compatible Android build is 
 - All 1,729 API unit tests passed. The command exited unsuccessfully because the global coverage thresholds were unmet.
 - `npm run lint` failed on ESLint errors in the nested `OTHER_PROJECTS/` checkout and stopped before the blank-link and ShellCheck stages.
 - Live Firebase credentials, Android display, and the pilot deployment remain unverified.
+
+## Trace push jobs on staging
+
+Set `DATA_MESSAGE_PUSH_DEBUG=true` in the CHT API environment and recreate the API service. Filter its logs for `[Fairvoice push]`. This reports the registration HTTP status, queue and dispatch activation, recipient installation count, why a job was skipped or retried, and the Firebase HTTP status or known rejection code. It traces token acquisition separately from the Firebase HTTP call. Tokens, credentials, keys, bindings, document IDs, and message content are excluded.
+
+Send a new CHT message after the recipient registers. A queue count of zero means Core found no active installation for that recipient. A dispatch result of `sent` means Firebase accepted the request. Check the Android app to confirm receipt and display. `SENDER_ID_MISMATCH` points to a difference between the Firebase sender project and the project that issued the device token. For a Firebase `401` or `403`, check the staging API credentials and role on that project. Unset the debug variable and recreate the API service when finished.

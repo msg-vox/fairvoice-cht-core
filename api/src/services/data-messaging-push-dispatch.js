@@ -5,6 +5,7 @@ const registrations = require('./data-messaging-push-registrations');
 const fcm = require('./data-messaging-fcm');
 const { JOB_TYPE } = require('./data-messaging-push-queue');
 const queryView = require('./data-messaging-push-view');
+const logPushDebug = require('./data-messaging-push-debug');
 
 const LIFETIME = 5 * 60 * 1000;
 const LEASE_TIME = 60000;
@@ -24,6 +25,7 @@ const dispatchJob = async (job, send) => {
   }
   const expiresAt = job.queued_at + LIFETIME;
   if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+    logPushDebug('Dispatch discarded an expired job');
     await update(job, { status: 'discarded' });
     return;
   }
@@ -33,12 +35,14 @@ const dispatchJob = async (job, send) => {
   job = await update(job, { next_attempt_at: leaseUntil });
   const eligible = await messaging.canMessage(job.sender_account_id, job.recipient_account_id);
   if (!eligible) {
+    logPushDebug('Dispatch discarded a job because the sender is no longer eligible');
     await update(job, { status: 'discarded' });
     return;
   }
 
   const senderName = await messaging.getSenderDisplayName(job.sender_account_id);
   if (Date.now() >= Math.min(expiresAt, leaseUntil)) {
+    logPushDebug('Dispatch stopped after the lease or job lifetime elapsed');
     return;
   }
 
@@ -47,6 +51,9 @@ const dispatchJob = async (job, send) => {
     // Resolve the binding and token after acquiring the OAuth credential.
     registration = await registrations.getCurrent(job);
     if (!registration || !messaging.getConfig().enabled) {
+      logPushDebug(registration ?
+        'Dispatch discarded a job because messaging is disabled' :
+        'Dispatch discarded a job because its registration is unavailable');
       return;
     }
     return {
@@ -68,6 +75,7 @@ const dispatchJob = async (job, send) => {
     // Transport and credential errors may include the request and its secrets.
     result = { status: 'retry' };
   }
+  logPushDebug('Dispatch finished with status %s', result.status);
   if (result.status === 'invalid_token') {
     await registrations.retireToken(registration);
     await update(job, { status: 'discarded' });
@@ -77,6 +85,7 @@ const dispatchJob = async (job, send) => {
     const attempts = (job.attempts || 0) + 1;
     const backoff = Math.min(60000, 5000 * 2 ** (attempts - 1));
     const delay = Math.max(result.minimumDelay || 0, backoff + Math.floor(Math.random() * backoff / 4));
+    logPushDebug('Dispatch scheduling retry attempt %s (delay %s ms before lifetime limit)', attempts, delay);
     await update(job, { attempts, next_attempt_at: Math.min(expiresAt, Date.now() + delay) });
     return;
   }
@@ -119,6 +128,7 @@ const processPage = async (send, startkey) => {
 
 const start = () => {
   if (process.env.DATA_MESSAGE_PUSH_SEND_ENABLED !== 'true') {
+    logPushDebug('Dispatch inactive because sending is disabled');
     return;
   }
   const projectId = process.env.DATA_MESSAGE_PUSH_FIREBASE_PROJECT_ID?.trim();
@@ -127,6 +137,10 @@ const start = () => {
     return;
   }
 
+  logPushDebug('Dispatch active');
+  if (process.env.DATA_MESSAGE_PUSH_DEBUG === 'true') {
+    logPushDebug('Data messaging enabled at worker startup: %s', messaging.getConfig().enabled);
+  }
   const send = fcm.createSender(projectId);
   const poll = async startkey => {
     let next;

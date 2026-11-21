@@ -1,9 +1,14 @@
 const { GoogleAuth } = require('google-auth-library');
+const logPushDebug = require('./data-messaging-push-debug');
 
 const SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 const FCM_ERROR_TYPE = 'type.googleapis.com/google.firebase.fcm.v1.FcmError';
 const BAD_REQUEST_TYPE = 'type.googleapis.com/google.rpc.BadRequest';
 const REQUEST_TIMEOUT = 10000;
+const FCM_ERROR_CODES = new Set([
+  'INVALID_ARGUMENT', 'UNREGISTERED', 'SENDER_ID_MISMATCH', 'QUOTA_EXCEEDED', 'UNAVAILABLE',
+  'INTERNAL', 'THIRD_PARTY_AUTH_ERROR',
+]);
 
 const retryAfterMs = value => {
   if (!value) {
@@ -21,6 +26,9 @@ const getAccessToken = async (auth, signal) => {
   });
   try {
     return await Promise.race([auth.getAccessToken(), deadline]);
+  } catch (err) {
+    logPushDebug('Firebase credential acquisition failed (timed out: %s)', signal.aborted);
+    throw err;
   } finally {
     signal.removeEventListener('abort', abort);
   }
@@ -34,6 +42,7 @@ const createSender = projectId => {
     const signal = AbortSignal.timeout(REQUEST_TIMEOUT);
     const accessToken = await getAccessToken(auth, signal);
     if (!accessToken) {
+      logPushDebug('Firebase credential acquisition returned no access token');
       throw new Error('Firebase access token unavailable');
     }
     signal.throwIfAborted();
@@ -48,13 +57,18 @@ const createSender = projectId => {
     if (ttl < 1) {
       return { status: 'discarded' };
     }
+    logPushDebug('Calling Firebase HTTP v1');
     const response = await fetch(url, {
       method: 'POST',
       headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
       body: JSON.stringify({ message: { ...message, android: { priority: 'high', ttl: `${ttl}s` } } }),
       redirect: 'error',
       signal,
+    }).catch(err => {
+      logPushDebug('Firebase HTTP request failed before a response (timed out: %s)', signal.aborted);
+      throw err;
     });
+    logPushDebug('Firebase returned HTTP %s', response.status);
     if (response.ok) {
       await response.body?.cancel();
       return { status: 'sent' };
@@ -69,6 +83,8 @@ const createSender = projectId => {
 
     const { error } = await response.json().catch(() => ({})) || {};
     const details = Array.isArray(error?.details) ? error.details : [];
+    const code = details.find(detail => detail?.['@type'] === FCM_ERROR_TYPE)?.errorCode;
+    logPushDebug('Firebase rejection classification: %s', FCM_ERROR_CODES.has(code) ? code : 'unknown');
     const invalidToken = details.some(detail => {
       if (detail['@type'] === FCM_ERROR_TYPE) {
         return detail.errorCode === 'UNREGISTERED' ||
