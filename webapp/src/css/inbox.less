@@ -914,9 +914,13 @@ a.fa:hover {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
-    .incoming .message-body .data p {
-      border-radius: 0 @radius-size-small @radius-size-small 0;
-      background-color: @separator-color;
+    .incoming .message-body .data {
+      text-align: left;
+      p {
+        text-align: start;
+        border-radius: 0 @radius-size-small @radius-size-small 0;
+        background-color: @separator-color;
+      }
     }
     .outgoing .message-body {
       .data p {

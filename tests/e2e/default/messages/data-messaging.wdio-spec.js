@@ -52,6 +52,29 @@ describe('Private data messaging', () => {
     }, { timeout: 30000, timeoutMsg: `Message ${index + 1} did not reach "${status}"` });
   };
 
+  const expectBubbleSides = async expected => {
+    const sides = await browser.execute(() => {
+      const root = document.querySelector('.app-root');
+      const originalDirection = root.dir;
+      const wasRtl = root.classList.contains('rtl');
+      try {
+        return ['ltr', 'rtl'].map(direction => {
+          root.dir = direction;
+          root.classList.toggle('rtl', direction === 'rtl');
+          return Array.from(document.querySelectorAll('#message-content .data-message-text'), bubble => {
+            const { left, right } = bubble.getBoundingClientRect();
+            const body = bubble.closest('.data').getBoundingClientRect();
+            return left - body.left < body.right - right ? 'left' : 'right';
+          });
+        });
+      } finally {
+        root.dir = originalDirection;
+        root.classList.toggle('rtl', wasRtl);
+      }
+    });
+    expect(sides).to.deep.equal([expected, expected]);
+  };
+
   before(async () => {
     const settings = await utils.request('/api/v1/settings');
     originalPilot = settings.data_messaging ?? null;
@@ -106,6 +129,7 @@ describe('Private data messaging', () => {
     expect(await incoming.$('.data-message-text b').isExisting()).to.equal(false);
     await submit(replyComposer, reply);
     await waitForDelivery(1, 'Sent to server');
+    await expectBubbleSides(['left', 'right']);
 
     const outsiderView = await scopedHistory(unrelated);
     expect(outsiderView.messages).to.deep.equal([]);
@@ -115,6 +139,7 @@ describe('Private data messaging', () => {
     await enterMessages(worker);
     await messagesPage.openMessage(threadId(dashboard));
     await browser.waitUntil(async () => (await messageRows()).length === 2);
+    await expectBubbleSides(['right', 'left']);
     await browser.throttle('offline');
     await submit(replyComposer, pending);
     await waitForDelivery(2, 'Waiting to sync');
