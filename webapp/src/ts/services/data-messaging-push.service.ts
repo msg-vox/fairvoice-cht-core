@@ -8,6 +8,7 @@ import { DataMessagingHistoryService } from '@mm-services/data-messaging-history
 import { DataMessagingService } from '@mm-services/data-messaging.service';
 
 import { DataMessagingPushBridgeService, isPushBinding } from '@mm-services/data-messaging-push-bridge.service';
+import { logPushDebug } from '@mm-services/data-messaging-push-debug';
 
 const COALESCE_MS = 75;
 const THREAD_MATCH: IsActiveMatchOptions = {
@@ -86,6 +87,9 @@ export class DataMessagingPushService implements OnDestroy {
   private updateSession(): PushSession | undefined {
     const registration = this.bridge.registration;
     if (!this.routerReady || !registration || registration.account_id !== this.messaging.accountId()) {
+      logPushDebug('Waiting for a delivery session', {
+        routerReady: this.routerReady, registrationPresent: Boolean(registration),
+      });
       this.clearSession();
       return;
     }
@@ -105,10 +109,12 @@ export class DataMessagingPushService implements OnDestroy {
   private handle(type: 'received' | 'tapped', detail: Record<string, unknown>): void {
     const id = detail.delivery_id;
     if (!isNonempty(id)) {
+      logPushDebug('Ignored delivery without an ID', { type });
       return;
     }
     const current = this.updateSession();
     const ack = (status: TerminalStatus) => {
+      logPushDebug('Delivery outcome', { type, status, sessionPresent: Boolean(current) });
       if (current) {
         current.outcomes.set(id, status);
         this.bridge.acknowledge(current.registration, id, status);
@@ -128,6 +134,7 @@ export class DataMessagingPushService implements OnDestroy {
     }
 
     if (!current) {
+      logPushDebug('Deferred delivery until the session is ready', { type });
       return;
     }
     if (detail.recipient_binding !== current.registration.recipient_binding) {
@@ -206,6 +213,7 @@ export class DataMessagingPushService implements OnDestroy {
     } catch {
       // A later resume or reconnect will retry the scoped refresh.
     } finally {
+      logPushDebug('History refresh finished', { succeeded, online: navigator.onLine });
       current.refreshing = false;
       current.pending ||= !succeeded;
       if (succeeded && this.current === current && this.updateSession() === current) {

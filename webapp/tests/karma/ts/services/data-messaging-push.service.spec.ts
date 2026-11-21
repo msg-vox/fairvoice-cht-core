@@ -147,6 +147,30 @@ describe('DataMessagingPushService', () => {
     expect(finished).to.be.true;
   }));
 
+  it('traces the registration status without logging credentials when enabled', fakeAsync(() => {
+    const log = sinon.stub(console, 'info');
+    const debugKey = 'fairvoice.push.debug';
+    try {
+      service.init();
+      expect(log.called).to.be.false;
+      localStorage.setItem(debugKey, '1');
+      http.post.returns(of(new HttpResponse({ status: 200, body: { recipient_binding: 'private-binding' } })));
+      receive({
+        type: 'request', id: 'private-request', operation: 'register', account_id: account,
+        body: { installation_key: 'private-key', fcm_token: 'private-token' },
+      });
+      tick();
+      const trace = JSON.stringify(log.args);
+      expect(trace).to.include('Registration HTTP request finished');
+      expect(trace).to.include('200');
+      for (const value of ['private-binding', 'private-request', 'private-key', 'private-token', account]) {
+        expect(trace).to.not.include(value);
+      }
+    } finally {
+      localStorage.removeItem(debugKey);
+    }
+  }));
+
   it('coalesces a burst and replays duplicate acknowledgements without changing an unsaved form', fakeAsync(() => {
     draft.value = 'Unsaved form response';
     draft.focus();

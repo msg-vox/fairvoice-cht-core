@@ -2,6 +2,8 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, NgZone } from '@angular/core';
 import { firstValueFrom, Subject } from 'rxjs';
 
+import { logPushDebug } from '@mm-services/data-messaging-push-debug';
+
 const REGISTRATIONS = '/api/v1/data-messaging/push-registrations';
 const LOGOUT_TIMEOUT_MS = 3_000;
 
@@ -44,8 +46,10 @@ export class DataMessagingPushBridgeService {
   connect(getAccount: () => string | undefined): boolean {
     const bridge = window.fairvoice_push_registration;
     if (typeof bridge?.postMessage !== 'function') {
+      logPushDebug('Android bridge unavailable');
       return false;
     }
+    logPushDebug('Android bridge connected');
     this.bridge = bridge;
     this.getAccount = getAccount;
     bridge.onmessage = event => this.zone.run(() => this.receive(event.data));
@@ -70,6 +74,7 @@ export class DataMessagingPushBridgeService {
       return;
     }
     const account = this.getAccount?.();
+    logPushDebug('Session check', { accountPresent: Boolean(account), online: navigator.onLine });
     if (this.account !== account) {
       this.account = account;
       this.registration = undefined;
@@ -101,7 +106,10 @@ export class DataMessagingPushBridgeService {
     this.registration = undefined;
     this.changes.next();
     this.logoutPending = new Promise<void>(resolve => {
-      const timer = setTimeout(() => this.signedOut?.(), LOGOUT_TIMEOUT_MS);
+      const timer = setTimeout(() => {
+        logPushDebug('Timed out waiting for Android logout');
+        this.signedOut?.();
+      }, LOGOUT_TIMEOUT_MS);
       this.signedOut = () => {
         clearTimeout(timer);
         this.signedOut = undefined;
@@ -114,15 +122,17 @@ export class DataMessagingPushBridgeService {
     return this.logoutPending;
   }
 
-  private send(message: Record<string, unknown>): boolean {
+  private send(message: { type: string; [key: string]: unknown }): boolean {
     try {
       if (this.bridge) {
         this.bridge.postMessage(JSON.stringify(message));
+        logPushDebug('Sent to Android', { type: message.type });
         return true;
       }
     } catch {
       // A WebView navigation can invalidate the bridge.
     }
+    logPushDebug('Could not send to Android', { type: message.type });
     return false;
   }
 
@@ -131,6 +141,7 @@ export class DataMessagingPushBridgeService {
     try {
       message = JSON.parse(data);
     } catch {
+      logPushDebug('Ignored malformed Android message');
       return;
     }
     switch (message?.type) {
@@ -142,13 +153,17 @@ export class DataMessagingPushBridgeService {
         break;
       case 'received':
       case 'tapped':
+        logPushDebug('Delivery from Android', { type: message.type, signingOut: this.signingOut });
         if (!this.signingOut && message.detail) {
           this.deliveries.next(message);
         }
         break;
       case 'signed_out':
+        logPushDebug('Android completed logout');
         this.signedOut?.();
         break;
+      default:
+        logPushDebug('Ignored unknown Android message type');
     }
   }
 
@@ -156,6 +171,10 @@ export class DataMessagingPushBridgeService {
     const account = this.getAccount?.();
     const binding = message.recipient_binding;
     const valid = !this.signingOut && account && message.account_id === account && isPushBinding(binding);
+    logPushDebug('Registration from Android', {
+      accepted: Boolean(valid), bindingPresent: isPushBinding(binding), matchesAccount: !!account &&
+        message.account_id === account,
+    });
     if (valid && this.registration?.account_id === account && this.registration.recipient_binding === binding) {
       return;
     }
@@ -167,6 +186,7 @@ export class DataMessagingPushBridgeService {
     const bridge = this.bridge;
     const { id, operation, account_id, body } = message;
     if (typeof id !== 'string' || !['register', 'refresh', 'unregister'].includes(operation)) {
+      logPushDebug('Ignored invalid registration request from Android');
       return;
     }
     const unregister = operation === 'unregister';
@@ -175,11 +195,14 @@ export class DataMessagingPushBridgeService {
     };
     if (!account_id || account_id !== this.account || account_id !== this.getAccount?.() ||
         (unregister ? !this.signedOut : this.signingOut)) {
+      logPushDebug('Rejected registration request locally', { operation, status: 412 });
       reply(412);
       return;
     }
 
     const path = operation === 'register' ? REGISTRATIONS : REGISTRATIONS + '/' + operation;
+    const started = performance.now();
+    logPushDebug('Registration HTTP request started', { operation });
     let status: number;
     let binding: string | undefined;
     try {
@@ -193,6 +216,9 @@ export class DataMessagingPushBridgeService {
     } catch (err) {
       status = err instanceof HttpErrorResponse ? err.status : 0;
     }
+    logPushDebug('Registration HTTP request finished', {
+      operation, status, bindingPresent: Boolean(binding), elapsedMs: Math.round(performance.now() - started),
+    });
     if (this.bridge === bridge && this.account === account_id && this.getAccount?.() === account_id &&
         (unregister || !this.signingOut)) {
       reply(status, binding);
