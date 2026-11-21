@@ -3,6 +3,7 @@
 const { spawn } = require('node:child_process');
 const { createInterface } = require('node:readline');
 const { Writable } = require('node:stream');
+const { parseArgs } = require('node:util');
 
 const { connect, MESSAGE_TEXT_LIMIT, parseServer } = require('./couchdb');
 
@@ -115,18 +116,37 @@ const compose = async (couch, participants) => {
 };
 
 const main = async () => {
-  if (process.argv.includes('--help')) {
-    print('Usage: node fcm-cli.js\nInteractively connect to CouchDB and send Fairvoice data messages.');
+  let values;
+  try {
+    ({ values } = parseArgs({
+      options: {
+        server: { type: 'string' },
+        password: { type: 'string' },
+        help: { type: 'boolean' },
+      },
+    }));
+  } catch {
+    throw new Error('Invalid arguments. Run with --help for usage.');
+  }
+
+  if (values.help) {
+    print([
+      'Usage: node fcm-cli.js [--server URL] [--password PASSWORD]',
+      '',
+      'Browse participants and send Fairvoice data messages using the medic database and admin account.',
+      '',
+      '  --server URL         Direct CouchDB server origin. Prompts if omitted.',
+      '  --password PASSWORD  CouchDB admin password. Prompts with hidden input if omitted.',
+      '  --help               Show this help.',
+    ].join('\n'));
     return;
   }
   if (!stdin.isTTY || !stdout.isTTY || !stderr.isTTY) {
     throw new Error('Run this command in an interactive terminal.');
   }
-  const origin = parseServer((await ask('CouchDB server URL: ')).trim());
-  const database = (await ask('Project database [medic]: ')).trim() || 'medic';
-  const username = (await ask('CouchDB admin username [medic]: ')).trim() || 'medic';
-  const password = await ask('CouchDB admin password: ', { hidden: true });
-  const couch = connect(origin, database, username, password);
+  const origin = parseServer((values.server ?? await ask('CouchDB server URL: ')).trim());
+  const password = values.password ?? await ask('CouchDB admin password: ', { hidden: true });
+  const couch = connect(origin, 'medic', 'medic', password);
 
   const participants = await couch.listParticipants();
   print(`Found ${participants.length} active participant(s).`);

@@ -9,10 +9,12 @@ without installing any npm packages or building CHT Core.
 node fcm-messaging/fcm-cli.js
 ```
 
-Enter the direct CouchDB server origin (for example, `http://localhost:5984`),
-the project database name (default `medic`), and the administrator username
-(default `medic`) and password. Use an HTTPS endpoint or a local tunnel when
-connecting to a remote server. The password prompt hides input.
+The CLI uses the `medic` project database and `medic` administrator account.
+Enter the direct CouchDB server origin and admin password when prompted, or
+supply them independently with `--server URL` and `--password PASSWORD`.
+Run with `--help` to see the options. Use an HTTPS endpoint or a local tunnel
+for a remote server. The password prompt hides input and keeps the password
+out of command-line arguments and shell history.
 
 - **B** opens the searchable participant list. Search by display name,
   username, or role. Press Enter to inspect a result or Esc to return.
@@ -22,7 +24,7 @@ connecting to a remote server. The password prompt hides input.
 
 The CLI lists accounts that have both a CouchDB login and active CHT user
 settings. It writes the same message document used by Fairvoice to the
-existing `<project-database>-data-messaging` database on the same server.
+existing `medic-data-messaging` database on the same server.
 This administrative write bypasses the relationship checks applied to
 regular in-app sends. Replies composed in Fairvoice still follow the
 usual eligibility rules.
