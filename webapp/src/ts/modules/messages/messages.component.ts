@@ -225,11 +225,14 @@ export class MessagesComponent implements OnInit, OnDestroy {
     this.fastActionList = await this.fastActionButtonService.getMessageActions({
       callbackOpenSendMessage: () => {
         const modal = this.modalService.show(SendMessageComponent, { data: { allowDataMessages: true } });
-        this.subscriptions.add(modal.afterClosed().pipe(take(1)).subscribe(recipientId => {
-          if (recipientId) {
+        const closed = modal.afterClosed().pipe(take(1)).subscribe((recipientId: string | string[] | undefined) => {
+          if (Array.isArray(recipientId)) {
+            void this.router.navigate(['/messages']);
+          } else if (recipientId) {
             void this.router.navigate(['/messages', `${DATA_CONVERSATION}:${recipientId}`]);
           }
-        }));
+        });
+        this.subscriptions.add(closed);
       },
     });
   }

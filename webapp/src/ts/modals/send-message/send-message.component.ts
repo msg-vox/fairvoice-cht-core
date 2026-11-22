@@ -1,4 +1,4 @@
-import { AfterViewInit, Component, DestroyRef, Inject, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, DestroyRef, ElementRef, Inject, ViewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import * as phoneNumber from '@medic/phone-number';
 import { filter as _filter, map as _map, partial as _partial } from 'lodash-es';
@@ -15,7 +15,10 @@ import { FormsModule } from '@angular/forms';
 import { NgClass, NgIf } from '@angular/common';
 import { TranslatePipe } from '@ngx-translate/core';
 import { PREFIXES } from '@medic/constants';
-import { DataMessageComposerComponent } from '@mm-modules/messages/data-message-composer.component';
+import {
+  DataMessage, DataMessagingService, getDataMessageRejection, isValidDataMessageText,
+} from '@mm-services/data-messaging.service';
+import { DataMessageDelivery, DataMessagingStoreService } from '@mm-services/data-messaging-store.service';
 import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
 
 @Component({
@@ -27,18 +30,48 @@ import { DataMessagingHistoryService } from '@mm-services/data-messaging-history
     NgClass,
     NgIf,
     TranslatePipe,
-    DataMessageComposerComponent,
   ],
 })
 export class SendMessageComponent implements AfterViewInit {
   static id = 'send-message-modal';
 
-  @ViewChild(DataMessageComposerComponent) dataComposer?: DataMessageComposerComponent;
+  private destroyPicker?: () => void;
+
+  @ViewChild('dataPicker') set dataPicker(ref: ElementRef<HTMLSelectElement> | undefined) {
+    this.destroyPicker?.();
+    this.destroyPicker = undefined;
+    if (!ref) {
+      return;
+    }
+    const picker = $(ref.nativeElement);
+    picker.select2({
+      width: '100%',
+      dropdownParent: picker.parent(),
+      closeOnSelect: false,
+      language: { noResults: () => this.translateService.instant('messages.data.no_matching_recipients') },
+      matcher: (params, option) => {
+        const name = option.element?.getAttribute('data-name') ?? '';
+        return name.toLocaleLowerCase().includes((params.term ?? '').trim().toLocaleLowerCase()) ? option : null;
+      },
+    });
+    picker.next('.select2').find('.select2-search__field').attr('aria-labelledby', 'send-message-account-label');
+    picker.on('change.dataRecipients', () => {
+      this.dataRecipientIds = Array.from(ref.nativeElement.selectedOptions, option => option.value);
+    });
+    this.destroyPicker = () => picker.off('.dataRecipients').select2('destroy');
+  }
+
   messageInput;
   processing = false;
   dataMode?: boolean;
-  dataRecipientId = '';
-  dataRecipients: { id: string; label: string }[] | null = null;
+  dataRecipientIds: string[] = [];
+  dataRecipients: DataRecipientOption[] | null = null;
+  dataDraft = '';
+  dataFeedback?: 'invalid' | 'submit_error';
+  readonly outcomes = new Map<string, { label: string; status: DataMessageDelivery | 'submit_error' }>();
+  private readonly attempts = new Map<string, DataMessage>();
+  private readonly selectedOptions = new Map<string, DataRecipientOption>();
+  private dataAccount?: string;
   dataDirectoryError = false;
   dataDirectoryLoading = false;
   private dataDirectoryRequest = 0;
@@ -57,9 +90,12 @@ export class SendMessageComponent implements AfterViewInit {
     private translateService:TranslateService,
     private matDialogRef: MatDialogRef<SendMessageComponent>,
     private dataHistory: DataMessagingHistoryService,
+    private messaging: DataMessagingService,
+    private dataStore: DataMessagingStoreService,
     private destroyRef: DestroyRef,
     @Inject(MAT_DIALOG_DATA) private matDialogData: Message,
   ) {
+    this.destroyRef.onDestroy(() => this.destroyPicker?.());
     this.messageInput = this.matDialogData?.message;
     this.dataMode = this.matDialogData?.allowDataMessages ? undefined : false;
   }
@@ -80,6 +116,7 @@ export class SendMessageComponent implements AfterViewInit {
       }
 
       if (this.dataMode) {
+        this.dataAccount = this.messaging.accountId();
         this.dataHistory.changes.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
           void this.loadDataDirectory();
         });
@@ -94,27 +131,98 @@ export class SendMessageComponent implements AfterViewInit {
     void this.initPhoneField(phoneField, this.matDialogData?.to);
   }
 
+  get dataOptions(): DataRecipientOption[] {
+    const options = new Map(this.dataRecipients?.map(option => [option.id, option]));
+    for (const id of this.dataRecipientIds) {
+      const previous = this.selectedOptions.get(id);
+      if (!options.has(id) && previous) {
+        options.set(id, { ...previous, label: this.translateService.instant('messages.data.unavailable_option', {
+          recipient: previous.label,
+        }) });
+      }
+    }
+    return [...options.values()];
+  }
+
+  private submittedTo(id: string): boolean {
+    const status = this.outcomes.get(id)?.status;
+    return status === 'sent' || status === 'waiting';
+  }
+
   get canSendData(): boolean {
-    return !!this.dataRecipients?.some(entry => entry.id === this.dataRecipientId);
+    return this.dataRecipientIds.some(id => !this.submittedTo(id));
+  }
+
+  async submitData(): Promise<void> {
+    if (!this.dataMode || this.processing || !this.canSendData ||
+        !this.dataAccount || this.messaging.accountId() !== this.dataAccount) {
+      return;
+    }
+    const draft = this.dataDraft;
+    if (!isValidDataMessageText(draft)) {
+      this.dataFeedback = 'invalid';
+      return;
+    }
+    const ids = this.dataRecipientIds.filter(id => !this.submittedTo(id));
+    this.processing = true;
+    this.dataFeedback = undefined;
+    try {
+      const directory = await this.dataHistory.getDirectory({ refreshOnline: true });
+      const eligible = new Set(directory?.map(entry => entry.account_id));
+      for (const id of ids) {
+        if (this.destroyRef.destroyed || this.messaging.accountId() !== this.dataAccount) {
+          return;
+        }
+        const label = this.selectedOptions.get(id)?.label ?? id;
+        try {
+          let message = this.attempts.get(id);
+          if (message?.text !== draft) {
+            message = undefined;
+          }
+          if (!message && !eligible.has(id)) {
+            this.outcomes.set(id, { label, status: 'recipient_ineligible' });
+            continue;
+          }
+          message ??= this.messaging.compose(id, draft);
+          this.attempts.set(id, message);
+          const status = await this.dataStore.submit(message);
+          this.outcomes.set(id, { label, status });
+        } catch (error) {
+          this.outcomes.set(id, { label, status: getDataMessageRejection(error) ?? 'submit_error' });
+        }
+      }
+      if (!this.destroyRef.destroyed && this.messaging.accountId() === this.dataAccount &&
+          ids.every(id => this.submittedTo(id))) {
+        const submitted = [...this.outcomes.keys()].filter(id => this.submittedTo(id));
+        this.matDialogRef.close(submitted.length === 1 ? submitted[0] : submitted);
+      }
+    } catch {
+      this.dataFeedback = 'submit_error';
+    } finally {
+      this.processing = false;
+    }
   }
 
   private async loadDataDirectory(refreshOnline = false) {
     const request = ++this.dataDirectoryRequest;
     try {
       const entries = await this.dataHistory.getDirectory({ refreshOnline });
-      if (this.destroyRef.destroyed || request !== this.dataDirectoryRequest) {
+      if (this.destroyRef.destroyed || request !== this.dataDirectoryRequest ||
+          this.messaging.accountId() !== this.dataAccount) {
         return;
       }
       const labels = new Map<string, number>();
       const recipients = entries?.map(({ account_id, display_name, role_label, place_label }) => {
         const label = [display_name || account_id, role_label, place_label].filter(Boolean).join(' · ');
         labels.set(label, (labels.get(label) || 0) + 1);
-        return { id: account_id, label };
+        return { id: account_id, label, name: display_name || account_id.slice(PREFIXES.COUCH_USER.length) };
       });
-      this.dataRecipients = recipients?.map(({ id, label }) => ({
+      this.dataRecipients = recipients?.map(({ id, label, name }) => ({
         id,
+        name,
         label: labels.get(label)! > 1 ? `${label} (${id.slice(PREFIXES.COUCH_USER.length)})` : label,
       })).sort((a, b) => a.label.localeCompare(b.label)) ?? null;
+      this.dataRecipients?.forEach(option => this.selectedOptions.set(option.id, option));
       this.dataDirectoryError = false;
     } catch {
       if (!this.destroyRef.destroyed && request === this.dataDirectoryRequest) {
@@ -275,10 +383,6 @@ export class SendMessageComponent implements AfterViewInit {
     this.matDialogRef.close();
   }
 
-  dataMessageSubmitted(recipientId: string) {
-    this.matDialogRef.close(recipientId);
-  }
-
   submit() {
     if (this.dataMode !== false || this.processing) {
       return;
@@ -316,4 +420,10 @@ interface Message {
   message: string;
   phone: string;
   allowDataMessages?: boolean;
+}
+
+interface DataRecipientOption {
+  id: string;
+  label: string;
+  name: string;
 }

@@ -137,7 +137,7 @@ describe('SendMessageComponent', () => {
     expect(fixture.nativeElement.textContent).not.to.include('messages.data.directory_pending');
   });
 
-  it('disambiguates same-name accounts and sends to the selected account using the shared composer', async () => {
+  it('disambiguates same-name accounts and sends to the selected account using the data message store', async () => {
     const first = 'org.couchdb.user:first';
     const second = 'org.couchdb.user:second';
     const entry = { display_name: 'Alex', role_label: 'CHW', place_label: 'Clinic' };
@@ -156,12 +156,12 @@ describe('SendMessageComponent', () => {
     expect(select2SearchService.init.called).to.be.false;
     expect(dataHistory.getDirectory.calledOnceWithExactly({ refreshOnline: true })).to.be.true;
     const selector = fixture.nativeElement.querySelector('#send-message-account');
-    expect(Array.from<HTMLOptionElement>(selector.options).slice(1).map(option => option.text)).to.deep.equal([
+    expect(Array.from<HTMLOptionElement>(selector.options).map(option => option.text)).to.deep.equal([
       'Alex · CHW · Clinic (first)', 'Alex · CHW · Clinic (second)',
     ]);
 
     selector.value = second;
-    selector.dispatchEvent(new Event('change'));
+    $(selector).trigger('change');
     await render();
     const draft = fixture.nativeElement.querySelector('#send-data-message-draft');
     draft.value = text;
@@ -173,4 +173,57 @@ describe('SendMessageComponent', () => {
     expect(sendMessageService.send.called).to.be.false;
     expect(matDialogRef.close.calledOnceWithExactly(second)).to.be.true;
   });
+
+  it('filters by name and keeps a selected recipient visible after directory removal', async () => {
+    const first = { account_id: 'first', display_name: 'Alex', role_label: 'CHW', place_label: 'Clinic' };
+    const second = { ...first, account_id: 'second', display_name: 'Sam', place_label: 'Alex Clinic' };
+    dataHistory.getDirectory.resolves([first, second]);
+    await openModal(true);
+
+    const picker = $('#send-message-account');
+    picker.select2('open');
+    const search = picker.parent().find('.select2-search__field');
+    const results = () => picker.parent().find('.select2-results__option').toArray().map(option => option.textContent);
+    expect(results()).to.deep.equal(['Alex · CHW · Clinic', 'Sam · CHW · Alex Clinic']);
+    search.val('aLeX').trigger('input');
+    expect(results()).to.deep.equal(['Alex · CHW · Clinic']);
+    picker.val([first.account_id]).trigger('change').select2('close');
+    await render();
+
+    dataHistory.getDirectory.resolves([second]);
+    dataHistory.changes.next();
+    await render();
+
+    expect(component.dataRecipientIds).to.deep.equal([first.account_id]);
+    expect(picker.val()).to.deep.equal([first.account_id]);
+    expect(picker.find('option:selected').text()).to.contain('messages.data.unavailable_option');
+  });
+
+  it('retries only failed recipients with their original message ID', async () => {
+    const first = 'org.couchdb.user:first';
+    const second = 'org.couchdb.user:second';
+    dataHistory.getDirectory.resolves([first, second].map(account_id => ({
+      account_id, display_name: account_id, role_label: '', place_label: '',
+    })));
+    messaging.compose.callsFake((recipient_id, text) => ({ recipient_id, text, _id: recipient_id }));
+    dataStore.submit.onSecondCall().rejects(new Error('Network error'));
+    await openModal(true);
+
+    const picker = $('#send-message-account');
+    picker.val([first, second]).trigger('change');
+    component.dataDraft = 'A private message for each recipient';
+    await component.submitData();
+
+    expect(component.outcomes.get(first)?.status).to.equal('waiting');
+    expect(component.outcomes.get(second)?.status).to.equal('submit_error');
+    expect(matDialogRef.close.called).to.be.false;
+
+    await component.submitData();
+
+    expect(messaging.compose.callCount).to.equal(2);
+    expect(dataStore.submit.callCount).to.equal(3);
+    expect(dataStore.submit.thirdCall.args[0]).to.equal(dataStore.submit.secondCall.args[0]);
+    expect(matDialogRef.close.calledOnceWithExactly([first, second])).to.be.true;
+  });
+
 });

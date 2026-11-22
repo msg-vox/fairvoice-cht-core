@@ -1,6 +1,6 @@
 <mm-modal-layout
   id="send-message"
-  [processing]="processing || !!dataComposer?.sending"
+  [processing]="processing"
   [error]="errors.submit"
   [titleKey]="'Send Message'"
   [submitKey]="dataMode === false ? 'Send' : undefined"
@@ -40,27 +40,38 @@
       <p role="status">{{ 'messages.data.no_recipients' | translate }}</p>
     }
 
-    @if (dataRecipients?.length) {
-      <div class="form-group">
-        <label for="send-message-account">{{ 'messages.data.choose_recipient' | translate }}</label>
-        <select id="send-message-account" class="form-control"
-                [(ngModel)]="dataRecipientId" [disabled]="!!dataComposer?.sending">
-          <option value="" disabled>{{ 'messages.data.choose_recipient' | translate }}</option>
-          @for (recipient of dataRecipients; track recipient.id) {
-            <option [value]="recipient.id">{{ recipient.label }}</option>
-          }
-        </select>
-      </div>
-    }
-
-    @if (dataRecipientId) {
-      @if (!canSendData && dataRecipients?.length) {
-        <p role="status">{{ 'messages.data.delivery.recipient_ineligible' | translate }}</p>
+    <form class="data-message-composer" (ngSubmit)="submitData()">
+      @if (dataOptions.length) {
+        <div class="form-group">
+          <label id="send-message-account-label" for="send-message-account">
+            {{ 'messages.data.choose_recipients' | translate }}
+          </label>
+          <select #dataPicker id="send-message-account" class="form-control" multiple [disabled]="processing">
+            @for (recipient of dataOptions; track recipient.id + recipient.label) {
+              <option [value]="recipient.id" [attr.data-name]="recipient.name"
+                      [selected]="dataRecipientIds.includes(recipient.id)">{{ recipient.label }}</option>
+            }
+          </select>
+        </div>
       }
-      <mm-data-message-composer [recipientId]="dataRecipientId" draftId="send-data-message-draft"
-                                [disabled]="!canSendData" [preserveDraft]="true" [showDeliveryStatus]="false"
-                                (submitted)="dataMessageSubmitted($event.message.recipient_id)">
-      </mm-data-message-composer>
-    }
+      <div class="form-group">
+        <label for="send-data-message-draft">{{ 'messages.data.draft' | translate }}</label>
+        <textarea id="send-data-message-draft" name="dataDraft" class="form-control" rows="3"
+                  [(ngModel)]="dataDraft" [readonly]="processing" (ngModelChange)="dataFeedback = undefined"></textarea>
+      </div>
+      <button class="btn btn-primary" type="submit" [disabled]="processing || !canSendData || !dataDraft.trim()">
+        {{ (processing ? 'Sending' : 'Send') | translate }}
+      </button>
+      @if (dataFeedback) {
+        <p role="alert">{{ ('messages.data.delivery.' + dataFeedback) | translate }}</p>
+      }
+      @if (outcomes.size) {
+        <ul aria-live="polite">
+          @for (entry of outcomes; track entry[0]) {
+            <li>{{ entry[1].label }} — {{ ('messages.data.delivery.' + entry[1].status) | translate }}</li>
+          }
+        </ul>
+      }
+    </form>
   }
 </mm-modal-layout>
