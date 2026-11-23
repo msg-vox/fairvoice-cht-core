@@ -16,3 +16,5 @@ Add this top-level setting to enable the pilot. Replace `your-pilot-place-id` wi
 ```
 
 Android push is configured separately in the Core server environment and Android build. [Firebase setup](plans/firebase-setup.md)
+
+To group recipients by their display place, set `data_messaging.directory_parent_place_types` to a list of place type IDs. For example, `["researcher_area"]` displays the parent cooperative for a researcher area when the cooperative is within the pilot. Messaging eligibility uses the assigned places.

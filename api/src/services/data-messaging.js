@@ -124,6 +124,8 @@ const createRecipientPolicy = () => {
 };
 
 const getDirectoryEntries = async (pilotRoots, settings, watchPlace) => {
+  const configuredTypes = settings.data_messaging?.directory_parent_place_types;
+  const parentPlaceTypes = new Set(Array.isArray(configuredTypes) ? configuredTypes : []);
   const accounts = await users.listMessagingAccounts();
   const { getPlace, getLineage } = createPilotPlaces(pilotRoots, settings, watchPlace);
   const entries = new Map();
@@ -132,14 +134,18 @@ const getDirectoryEntries = async (pilotRoots, settings, watchPlace) => {
   for (const account of accounts) {
     const placeLabels = new Set();
     for (const id of new Set(account.facilityIds)) {
-      if (!(await getLineage(id)).length) {
+      const lineage = await getLineage(id);
+      if (!lineage.length) {
         continue;
       }
       if (!accountsByPlace.has(id)) {
         accountsByPlace.set(id, []);
       }
       accountsByPlace.get(id).push(account.id);
-      const { name } = await getPlace(id);
+      const place = await getPlace(id);
+      const useParent = parentPlaceTypes.has(getContactType(settings, place).id);
+      const displayPlace = useParent ? (lineage[1] && await getPlace(lineage[1])) : place;
+      const name = displayPlace?.name;
       if (typeof name === 'string' && name) {
         placeLabels.add(name);
       }
@@ -148,11 +154,17 @@ const getDirectoryEntries = async (pilotRoots, settings, watchPlace) => {
       .map(role => settings.roles?.[role]?.name)
       .filter(Boolean)
       .map(name => config.translate(name, settings.locale || 'en'));
+    const names = [...placeLabels];
+    if (parentPlaceTypes.size) {
+      names.sort((a, b) => a.localeCompare(b));
+    }
+    const placeLabel = names.join(', ');
     entries.set(account.id, {
       account_id: account.id,
       display_name: account.displayName,
       role_label: [...new Set(roleLabels)].join(', '),
-      place_label: [...placeLabels].join(', '),
+      place_label: placeLabel,
+      ...(parentPlaceTypes.size && placeLabel && { place_group: placeLabel }),
     });
     recipients.set(account.id, new Set());
   }
@@ -276,8 +288,9 @@ const getDirectory = async accountId => {
   if (doc?.type !== DIRECTORY_TYPE || doc.owner_id !== accountId || !Array.isArray(doc.entries)) {
     return null;
   }
-  return doc.entries.map(({ account_id, display_name, role_label, place_label }) => ({
+  return doc.entries.map(({ account_id, display_name, role_label, place_label, place_group }) => ({
     account_id, display_name, role_label, place_label,
+    ...(typeof place_group === 'string' && { place_group }),
   }));
 };
 

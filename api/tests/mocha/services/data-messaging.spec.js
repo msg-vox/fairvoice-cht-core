@@ -202,6 +202,64 @@ describe('Data messaging contract', () => {
         assert.equal(watchPlace.calledWith('country'), true);
       });
 
+      it('uses the pilot parent for display and preserves recipient assignments', async () => {
+        config.getAll().data_messaging = { directory_parent_place_types: ['site'] };
+        const hub = await db.medic.get('hub');
+        hub.name = 'Hub name';
+        const site = await db.medic.get('site');
+        site.name = 'Site name';
+        listAccounts.resolves(await Promise.all(['site', 'peer', 'pilot', 'hub'].map(async name => ({
+          ...await users.getMessagingAccount(name), displayName: name,
+        }))));
+
+        await dataMessaging.rebuildDirectories();
+
+        const directory = save.args.map(([doc]) => doc).find(doc => doc.owner_id === accountId('pilot'));
+        const { entries } = directory;
+        assert.deepEqual(entries.map(({ account_id, place_label, place_group }) => [
+          account_id, place_label, place_group,
+        ]), [
+          [accountId('hub'), 'Hub name', 'Hub name'],
+          [accountId('peer'), 'Hub name', 'Hub name'],
+          [accountId('site'), 'Hub name', 'Hub name'],
+        ]);
+        const siteEntries = save.args.map(([doc]) => doc).find(doc => doc.owner_id === accountId('site')).entries;
+        assert.deepEqual(siteEntries.map(entry => entry.account_id), [accountId('hub'), accountId('pilot')]);
+
+        sinon.stub(db.dataMessaging, 'get').withArgs(directory._id).resolves(directory);
+        sinon.stub(db.dataMessaging, 'changes').resolves({ results: [], last_seq: '1-test' });
+        const page = await dataMessaging.getSyncPage(directory.owner_id, '0');
+        assert.deepEqual(page.directory, entries);
+      });
+
+      it('combines distinct display places for accounts with multiple assignments', async () => {
+        config.getAll().data_messaging = { directory_parent_place_types: ['hub'] };
+        (await db.medic.get('zone')).name = 'Zone';
+        (await db.medic.get('other-zone')).name = 'Other zone';
+        listAccounts.resolves(await Promise.all(['pilot', 'multiple'].map(name => getAccount(name))));
+
+        await dataMessaging.rebuildDirectories();
+
+        const [{ place_label, place_group }] = save.firstCall.args[0].entries;
+        assert.equal(place_label, 'Other zone, Zone');
+        assert.equal(place_group, place_label);
+      });
+
+      it('omits the display place if the assigned pilot root has a parent outside the pilot', async () => {
+        getSettings.returns({ enabled: true, pilot_root_place_ids: ['hub'] });
+        config.getAll().data_messaging = { directory_parent_place_types: ['hub'] };
+        (await db.medic.get('zone')).name = 'Outside';
+        (await db.medic.get('hub')).name = 'Intermediate';
+        listAccounts.resolves(await Promise.all(['site', 'hub'].map(name => getAccount(name))));
+
+        await dataMessaging.rebuildDirectories();
+
+        const [recipient] = save.firstCall.args[0].entries;
+        assert.equal(recipient.account_id, accountId('hub'));
+        assert.equal(recipient.place_label, '');
+        assert.equal(Object.hasOwn(recipient, 'place_group'), false);
+      });
+
       it('only clears previously published directories when disabled and skips identical revisions', async () => {
         const owner_id = accountId('site');
         const id = directoryPrefix + owner_id;
