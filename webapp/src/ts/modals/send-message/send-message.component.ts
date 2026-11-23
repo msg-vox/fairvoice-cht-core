@@ -12,7 +12,7 @@ import { Select2SearchService } from '@mm-services/select2-search.service';
 import { TranslateService } from '@mm-services/translate.service';
 import { ModalLayoutComponent } from '@mm-components/modal-layout/modal-layout.component';
 import { FormsModule } from '@angular/forms';
-import { NgClass, NgIf } from '@angular/common';
+import { NgClass, NgIf, NgTemplateOutlet } from '@angular/common';
 import { TranslatePipe } from '@ngx-translate/core';
 import { PREFIXES } from '@medic/constants';
 import {
@@ -29,6 +29,7 @@ import { DataMessagingHistoryService } from '@mm-services/data-messaging-history
     FormsModule,
     NgClass,
     NgIf,
+    NgTemplateOutlet,
     TranslatePipe,
   ],
 })
@@ -50,8 +51,16 @@ export class SendMessageComponent implements AfterViewInit {
       closeOnSelect: false,
       language: { noResults: () => this.translateService.instant('messages.data.no_matching_recipients') },
       matcher: (params, option) => {
-        const name = option.element?.getAttribute('data-name') ?? '';
-        return name.toLocaleLowerCase().includes((params.term ?? '').trim().toLocaleLowerCase()) ? option : null;
+        const term = (params.term ?? '').trim().toLocaleLowerCase();
+        const matches = (entry: { element?: HTMLElement }) => {
+          const name = entry.element?.getAttribute('data-name') ?? '';
+          return name.toLocaleLowerCase().includes(term);
+        };
+        if (option.children?.length) {
+          const children = option.children.filter(matches);
+          return children.length ? { ...option, children } : null;
+        }
+        return matches(option) ? option : null;
       },
     });
     picker.next('.select2').find('.select2-search__field').attr('aria-labelledby', 'send-message-account-label');
@@ -131,7 +140,7 @@ export class SendMessageComponent implements AfterViewInit {
     void this.initPhoneField(phoneField, this.matDialogData?.to);
   }
 
-  get dataOptions(): DataRecipientOption[] {
+  private get dataOptions(): DataRecipientOption[] {
     const options = new Map(this.dataRecipients?.map(option => [option.id, option]));
     for (const id of this.dataRecipientIds) {
       const previous = this.selectedOptions.get(id);
@@ -142,6 +151,23 @@ export class SendMessageComponent implements AfterViewInit {
       }
     }
     return [...options.values()];
+  }
+
+  get dataOptionGroups() {
+    const groups = new Map<string, DataRecipientOption[]>();
+    for (const option of this.dataOptions) {
+      const group = option.placeGroup || '';
+      if (!groups.has(group)) {
+        groups.set(group, []);
+      }
+      groups.get(group)!.push(option);
+    }
+    return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([label, options]) => ({
+      label,
+      options,
+      // Select2 caches each optgroup's children for the lifetime of its DOM element.
+      key: label ? JSON.stringify([label, options]) : '',
+    }));
   }
 
   private submittedTo(id: string): boolean {
@@ -212,14 +238,19 @@ export class SendMessageComponent implements AfterViewInit {
         return;
       }
       const labels = new Map<string, number>();
-      const recipients = entries?.map(({ account_id, display_name, role_label, place_label }) => {
+      const recipients = entries?.map(({ account_id, display_name, role_label, place_label, place_group }) => {
         const label = [display_name || account_id, role_label, place_label].filter(Boolean).join(' · ');
         labels.set(label, (labels.get(label) || 0) + 1);
-        return { id: account_id, label, name: display_name || account_id.slice(PREFIXES.COUCH_USER.length) };
+        return {
+          id: account_id,
+          label,
+          name: display_name || account_id.slice(PREFIXES.COUCH_USER.length),
+          placeGroup: place_group,
+        };
       });
-      this.dataRecipients = recipients?.map(({ id, label, name }) => ({
+      this.dataRecipients = recipients?.map(({ id, label, ...option }) => ({
+        ...option,
         id,
-        name,
         label: labels.get(label)! > 1 ? `${label} (${id.slice(PREFIXES.COUCH_USER.length)})` : label,
       })).sort((a, b) => a.label.localeCompare(b.label)) ?? null;
       this.dataRecipients?.forEach(option => this.selectedOptions.set(option.id, option));
@@ -426,4 +457,5 @@ interface DataRecipientOption {
   id: string;
   label: string;
   name: string;
+  placeGroup?: string;
 }

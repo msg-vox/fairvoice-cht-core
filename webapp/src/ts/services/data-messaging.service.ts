@@ -19,6 +19,7 @@ export type DataMessagingRecipient = Readonly<{
   display_name: string;
   role_label: string;
   place_label: string;
+  place_group?: string;
 }>;
 export type DataMessagingDirectory = readonly DataMessagingRecipient[];
 export type DataMessagingPage = {

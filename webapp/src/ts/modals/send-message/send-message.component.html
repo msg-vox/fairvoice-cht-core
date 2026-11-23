@@ -41,15 +41,26 @@
     }
 
     <form class="data-message-composer" (ngSubmit)="submitData()">
-      @if (dataOptions.length) {
+      @if (dataOptionGroups.length) {
         <div class="form-group">
           <label id="send-message-account-label" for="send-message-account">
             {{ 'messages.data.choose_recipients' | translate }}
           </label>
           <select #dataPicker id="send-message-account" class="form-control" multiple [disabled]="processing">
-            @for (recipient of dataOptions; track recipient.id + recipient.label) {
-              <option [value]="recipient.id" [attr.data-name]="recipient.name"
-                      [selected]="dataRecipientIds.includes(recipient.id)">{{ recipient.label }}</option>
+            <ng-template #recipientOptions let-recipients>
+              @for (recipient of recipients; track recipient.id + recipient.label) {
+                <option [value]="recipient.id" [attr.data-name]="recipient.name"
+                        [selected]="dataRecipientIds.includes(recipient.id)">{{ recipient.label }}</option>
+              }
+            </ng-template>
+            @for (group of dataOptionGroups; track group.key) {
+              @if (group.label) {
+                <optgroup [label]="group.label">
+                  <ng-container *ngTemplateOutlet="recipientOptions; context: { $implicit: group.options }"></ng-container>
+                </optgroup>
+              } @else {
+                <ng-container *ngTemplateOutlet="recipientOptions; context: { $implicit: group.options }"></ng-container>
+              }
             }
           </select>
         </div>

@@ -199,6 +199,37 @@ describe('SendMessageComponent', () => {
     expect(picker.find('option:selected').text()).to.contain('messages.data.unavailable_option');
   });
 
+  it('groups recipients by place and hides groups without matching names', async () => {
+    const entry = { role_label: 'Researcher', place_label: 'Cooperative A', place_group: 'Cooperative A' };
+    dataHistory.getDirectory.resolves([
+      { ...entry, account_id: 'alice', display_name: 'Alice' },
+      { ...entry, account_id: 'bob', display_name: 'Bob', place_label: 'Cooperative B', place_group: 'Cooperative B' },
+    ]);
+    await openModal(true);
+
+    const picker = $('#send-message-account');
+    expect(picker.find('optgroup').toArray().map(group => group.getAttribute('label'))).to.deep.equal([
+      'Cooperative A', 'Cooperative B',
+    ]);
+    picker.select2('open');
+    picker.parent().find('.select2-search__field').val('alice').trigger('input');
+    expect(picker.parent().find('.select2-results__group').text()).to.equal('Cooperative A');
+    expect(picker.parent().find('.select2-results__options').text()).to.include('Alice · Researcher · Cooperative A');
+    expect(picker.parent().find('.select2-results__options').text()).not.to.include('Bob');
+
+    picker.val(['alice']).trigger('change').select2('close');
+    dataHistory.getDirectory.resolves([
+      { ...entry, account_id: 'alice', display_name: 'Alice' },
+      { ...entry, account_id: 'cara', display_name: 'Cara' },
+    ]);
+    dataHistory.changes.next();
+    await render();
+
+    expect(picker.val()).to.deep.equal(['alice']);
+    picker.select2('open');
+    expect(picker.parent().find('.select2-results__options').text()).to.include('Cara · Researcher · Cooperative A');
+  });
+
   it('retries only failed recipients with their original message ID', async () => {
     const first = 'org.couchdb.user:first';
     const second = 'org.couchdb.user:second';
