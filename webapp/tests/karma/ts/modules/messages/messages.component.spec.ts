@@ -219,7 +219,11 @@ describe('Messages Component', () => {
   it('updates cached data inbox labels offline when the language changes', fakeAsync(() => {
     sinon.stub(navigator, 'onLine').get(() => false);
     const translate = TestBed.inject(TranslateService);
-    translate.setTranslation('en', { 'role.researcher': 'Researcher', 'role.officer': 'English Officer' });
+    translate.setTranslation('en', {
+      'messages.data.draft': 'Data message',
+      'role.researcher': 'Researcher',
+      'role.officer': 'English Officer',
+    });
     translate.setTranslation('fr', { 'role.researcher': 'Chercheur', 'role.assistant': 'Chercheur' });
     translate.setDefaultLang('en');
     translate.use('en');
@@ -245,11 +249,11 @@ describe('Messages Component', () => {
     fixture.detectChanges();
 
     const row = fixture.nativeElement.querySelector(`[test-id="data:${id}"]`);
-    expect(row.querySelector('.detail').textContent).to.include('Researcher, English Officer, Assistant · Clinic');
+    expect(row.querySelector('.detail').textContent.trim()).to.equal('Researcher, English Officer, Assistant · Clinic');
     const loads = dataConversations.getConversations.callCount;
     translate.use('fr');
     fixture.detectChanges();
-    expect(row.querySelector('.detail').textContent).to.include('Chercheur, Officer · Clinic');
+    expect(row.querySelector('.detail').textContent.trim()).to.equal('Chercheur, Officer · Clinic');
     expect(row.querySelector('h4').textContent).to.equal('Alex');
     expect(dataConversations.getConversations.callCount).to.equal(loads);
     expect(dataHistory.refreshOnline.called).to.be.false;

@@ -24,9 +24,8 @@
                   <div class="date"><span [innerHTML]="msg.date | relativeDate"></span></div>
                 </div>
                 <div class="summary"><p>{{ msg.message }}</p></div>
-                <div class="detail" *ngIf="msg.type === dataConversationType">
-                  @let description = dataMessagingLabels.description(msg.recipient);
-                  {{ 'messages.data.draft' | translate }}{{ description ? ' · ' + description : '' }}
+                <div class="detail" *ngIf="msg.type === dataConversationType && dataMessagingLabels.description(msg.recipient) as description">
+                  {{ description }}
                 </div>
                 <div class="detail" *ngIf="msg.lineage?.length" [innerHTML]="msg.lineage | lineage"></div>
               </div>
