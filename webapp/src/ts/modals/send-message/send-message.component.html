@@ -79,7 +79,7 @@
       @if (outcomes.size) {
         <ul aria-live="polite">
           @for (entry of outcomes; track entry[0]) {
-            <li>{{ entry[1].label }} — {{ ('messages.data.delivery.' + entry[1].status) | translate }}</li>
+            <li>{{ recipientLabel(entry[0]) }} — {{ ('messages.data.delivery.' + entry[1]) | translate }}</li>
           }
         </ul>
       }

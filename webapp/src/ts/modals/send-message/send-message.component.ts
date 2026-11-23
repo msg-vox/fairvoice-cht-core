@@ -1,4 +1,6 @@
-import { AfterViewInit, Component, DestroyRef, ElementRef, Inject, ViewChild } from '@angular/core';
+import {
+  afterNextRender, AfterViewInit, Component, DestroyRef, ElementRef, Inject, Injector, ViewChild,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import * as phoneNumber from '@medic/phone-number';
 import { filter as _filter, map as _map, partial as _partial } from 'lodash-es';
@@ -16,10 +18,12 @@ import { NgClass, NgIf, NgTemplateOutlet } from '@angular/common';
 import { TranslatePipe } from '@ngx-translate/core';
 import { PREFIXES } from '@medic/constants';
 import {
-  DataMessage, DataMessagingService, getDataMessageRejection, isValidDataMessageText,
+  DataMessage, DataMessagingDirectory, DataMessagingRecipient, DataMessagingService,
+  getDataMessageRejection, isValidDataMessageText,
 } from '@mm-services/data-messaging.service';
 import { DataMessageDelivery, DataMessagingStoreService } from '@mm-services/data-messaging-store.service';
 import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
+import { DataMessagingLabelsService } from '@mm-services/data-messaging-labels.service';
 
 @Component({
   selector: 'send-message',
@@ -36,11 +40,14 @@ import { DataMessagingHistoryService } from '@mm-services/data-messaging-history
 export class SendMessageComponent implements AfterViewInit {
   static id = 'send-message-modal';
 
-  private destroyPicker?: () => void;
+  private picker?: { element: HTMLSelectElement; destroy: () => void; refresh: () => void };
 
   @ViewChild('dataPicker') set dataPicker(ref: ElementRef<HTMLSelectElement> | undefined) {
-    this.destroyPicker?.();
-    this.destroyPicker = undefined;
+    if (this.picker?.element === ref?.nativeElement) {
+      return;
+    }
+    this.picker?.destroy();
+    this.picker = undefined;
     if (!ref) {
       return;
     }
@@ -67,7 +74,14 @@ export class SendMessageComponent implements AfterViewInit {
     picker.on('change.dataRecipients', () => {
       this.dataRecipientIds = Array.from(ref.nativeElement.selectedOptions, option => option.value);
     });
-    this.destroyPicker = () => picker.off('.dataRecipients').select2('destroy');
+    this.picker = {
+      element: ref.nativeElement,
+      destroy: () => picker.off('.dataRecipients').select2('destroy'),
+      refresh: () => {
+        picker.val(this.dataRecipientIds).trigger('change.select2');
+        picker.next('.select2-container--open').find('.select2-search__field').trigger('input');
+      },
+    };
   }
 
   messageInput;
@@ -77,9 +91,11 @@ export class SendMessageComponent implements AfterViewInit {
   dataRecipients: DataRecipientOption[] | null = null;
   dataDraft = '';
   dataFeedback?: 'invalid' | 'submit_error';
-  readonly outcomes = new Map<string, { label: string; status: DataMessageDelivery | 'submit_error' }>();
+  readonly outcomes = new Map<string, DataMessageDelivery | 'submit_error'>();
   private readonly attempts = new Map<string, DataMessage>();
-  private readonly selectedOptions = new Map<string, DataRecipientOption>();
+  private dataDirectory: DataMessagingDirectory | null = null;
+  private readonly knownRecipients = new Map<string, DataMessagingRecipient>();
+  private readonly recipientOptions = new Map<string, DataRecipientOption>();
   private dataAccount?: string;
   dataDirectoryError = false;
   dataDirectoryLoading = false;
@@ -101,10 +117,12 @@ export class SendMessageComponent implements AfterViewInit {
     private dataHistory: DataMessagingHistoryService,
     private messaging: DataMessagingService,
     private dataStore: DataMessagingStoreService,
+    private dataMessagingLabels: DataMessagingLabelsService,
+    private injector: Injector,
     private destroyRef: DestroyRef,
     @Inject(MAT_DIALOG_DATA) private matDialogData: Message,
   ) {
-    this.destroyRef.onDestroy(() => this.destroyPicker?.());
+    this.destroyRef.onDestroy(() => this.picker?.destroy());
     this.messageInput = this.matDialogData?.message;
     this.dataMode = this.matDialogData?.allowDataMessages ? undefined : false;
   }
@@ -129,6 +147,9 @@ export class SendMessageComponent implements AfterViewInit {
         this.dataHistory.changes.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
           void this.loadDataDirectory();
         });
+        this.dataMessagingLabels.changes.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+          this.rebuildDataOptions();
+        });
         this.dataDirectoryLoading = true;
         void this.loadDataDirectory(true);
         return;
@@ -143,7 +164,7 @@ export class SendMessageComponent implements AfterViewInit {
   private get dataOptions(): DataRecipientOption[] {
     const options = new Map(this.dataRecipients?.map(option => [option.id, option]));
     for (const id of this.dataRecipientIds) {
-      const previous = this.selectedOptions.get(id);
+      const previous = this.recipientOptions.get(id);
       if (!options.has(id) && previous) {
         options.set(id, { ...previous, label: this.translateService.instant('messages.data.unavailable_option', {
           recipient: previous.label,
@@ -171,8 +192,12 @@ export class SendMessageComponent implements AfterViewInit {
   }
 
   private submittedTo(id: string): boolean {
-    const status = this.outcomes.get(id)?.status;
+    const status = this.outcomes.get(id);
     return status === 'sent' || status === 'waiting';
+  }
+
+  recipientLabel(id: string): string {
+    return this.recipientOptions.get(id)?.label ?? id;
   }
 
   get canSendData(): boolean {
@@ -199,22 +224,21 @@ export class SendMessageComponent implements AfterViewInit {
         if (this.destroyRef.destroyed || this.messaging.accountId() !== this.dataAccount) {
           return;
         }
-        const label = this.selectedOptions.get(id)?.label ?? id;
         try {
           let message = this.attempts.get(id);
           if (message?.text !== draft) {
             message = undefined;
           }
           if (!message && !eligible.has(id)) {
-            this.outcomes.set(id, { label, status: 'recipient_ineligible' });
+            this.outcomes.set(id, 'recipient_ineligible');
             continue;
           }
           message ??= this.messaging.compose(id, draft);
           this.attempts.set(id, message);
           const status = await this.dataStore.submit(message);
-          this.outcomes.set(id, { label, status });
+          this.outcomes.set(id, status);
         } catch (error) {
-          this.outcomes.set(id, { label, status: getDataMessageRejection(error) ?? 'submit_error' });
+          this.outcomes.set(id, getDataMessageRejection(error) ?? 'submit_error');
         }
       }
       if (!this.destroyRef.destroyed && this.messaging.accountId() === this.dataAccount &&
@@ -237,23 +261,9 @@ export class SendMessageComponent implements AfterViewInit {
           this.messaging.accountId() !== this.dataAccount) {
         return;
       }
-      const labels = new Map<string, number>();
-      const recipients = entries?.map(({ account_id, display_name, role_label, place_label, place_group }) => {
-        const label = [display_name || account_id, role_label, place_label].filter(Boolean).join(' · ');
-        labels.set(label, (labels.get(label) || 0) + 1);
-        return {
-          id: account_id,
-          label,
-          name: display_name || account_id.slice(PREFIXES.COUCH_USER.length),
-          placeGroup: place_group,
-        };
-      });
-      this.dataRecipients = recipients?.map(({ id, label, ...option }) => ({
-        ...option,
-        id,
-        label: labels.get(label)! > 1 ? `${label} (${id.slice(PREFIXES.COUCH_USER.length)})` : label,
-      })).sort((a, b) => a.label.localeCompare(b.label)) ?? null;
-      this.dataRecipients?.forEach(option => this.selectedOptions.set(option.id, option));
+      this.dataDirectory = entries;
+      entries?.forEach(entry => this.knownRecipients.set(entry.account_id, entry));
+      this.rebuildDataOptions();
       this.dataDirectoryError = false;
     } catch {
       if (!this.destroyRef.destroyed && request === this.dataDirectoryRequest) {
@@ -264,6 +274,38 @@ export class SendMessageComponent implements AfterViewInit {
         this.dataDirectoryLoading = false;
       }
     }
+  }
+
+  private rebuildDataOptions() {
+    const entries = new Map(this.dataDirectory?.map(entry => [entry.account_id, entry]));
+    for (const id of [...this.dataRecipientIds, ...this.outcomes.keys()]) {
+      const entry = this.knownRecipients.get(id);
+      if (entry) {
+        entries.set(id, entry);
+      }
+    }
+
+    const labels = new Map<string, number>();
+    const options = [...entries.values()].map(entry => {
+      const { account_id: id, display_name, place_group } = entry;
+      const username = id.startsWith(PREFIXES.COUCH_USER) ? id.slice(PREFIXES.COUCH_USER.length) : id;
+      const description = this.dataMessagingLabels.description(entry);
+      const label = [display_name || id, description].filter(Boolean).join(' · ');
+      labels.set(label, (labels.get(label) || 0) + 1);
+      return { id, label, username, name: display_name || username, placeGroup: place_group };
+    });
+    this.recipientOptions.clear();
+    for (const { username, label, ...option } of options) {
+      this.recipientOptions.set(option.id, {
+        ...option,
+        label: labels.get(label)! > 1 ? `${label} (${username})` : label,
+      });
+    }
+    this.dataRecipients = this.dataDirectory?.map(entry => this.recipientOptions.get(entry.account_id)!)
+      .sort((a, b) => a.label.localeCompare(b.label)) ?? null;
+
+    // Select2 reads option text from the DOM, after Angular renders the updated labels.
+    afterNextRender({ mixedReadWrite: () => this.picker?.refresh() }, { injector: this.injector });
   }
 
   private validateMessage(message) {

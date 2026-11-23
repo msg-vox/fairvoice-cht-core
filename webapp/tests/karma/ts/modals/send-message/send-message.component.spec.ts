@@ -3,7 +3,7 @@ import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import sinon from 'sinon';
 import { expect } from 'chai';
 import { FormsModule } from '@angular/forms';
-import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
+import { TranslateFakeLoader, TranslateLoader, TranslateModule, TranslateService } from '@ngx-translate/core';
 import { Subject } from 'rxjs';
 
 import { SendMessageComponent } from '@mm-modals/send-message/send-message.component';
@@ -245,8 +245,8 @@ describe('SendMessageComponent', () => {
     component.dataDraft = 'A private message for each recipient';
     await component.submitData();
 
-    expect(component.outcomes.get(first)?.status).to.equal('waiting');
-    expect(component.outcomes.get(second)?.status).to.equal('submit_error');
+    expect(component.outcomes.get(first)).to.equal('waiting');
+    expect(component.outcomes.get(second)).to.equal('submit_error');
     expect(matDialogRef.close.called).to.be.false;
 
     await component.submitData();
@@ -255,6 +255,93 @@ describe('SendMessageComponent', () => {
     expect(dataStore.submit.callCount).to.equal(3);
     expect(dataStore.submit.thirdCall.args[0]).to.equal(dataStore.submit.secondCall.args[0]);
     expect(matDialogRef.close.calledOnceWithExactly([first, second])).to.be.true;
+  });
+
+  it('relabels the open picker, unavailable selections, and outcomes without fetching the directory', async () => {
+    const translate = TestBed.inject(TranslateService);
+    translate.setTranslation('en', {
+      'role.researcher': 'Researcher',
+      'messages.data.unavailable_option': 'Unavailable: {{recipient}}',
+    });
+    translate.setTranslation('fr', {
+      'role.researcher': 'Chercheur',
+      'role.assistant': 'Chercheur',
+      'messages.data.unavailable_option': 'Indisponible : {{recipient}}',
+    });
+    translate.use('en');
+    const first = 'org.couchdb.user:first';
+    const second = 'org.couchdb.user:second';
+    const entries = [first, second].map(account_id => ({
+      account_id,
+      display_name: 'Alex',
+      place_label: 'Clinic',
+      place_group: 'Clinic',
+      role_label: 'Researcher, Assistant, Officer',
+      role_labels: [
+        { key: 'role.researcher', fallback: 'Researcher' },
+        { key: 'role.assistant', fallback: 'Assistant' },
+        { key: 'role.officer', fallback: 'Officer' },
+      ],
+    }));
+    dataHistory.getDirectory.resolves(entries);
+    messaging.compose.callsFake((recipient_id, text) => ({ recipient_id, text, _id: recipient_id }));
+    dataStore.submit.onSecondCall().rejects(new Error('Network error'));
+    await openModal(true);
+
+    const picker = $('#send-message-account');
+    const labels = () => picker.find('option:selected').toArray().map(option => option.textContent);
+    const chips = () => picker.next().find('.select2-selection__choice').toArray().map(chip => chip.title);
+    const results = () => picker.parent().find('.select2-results__option[aria-selected]').toArray()
+      .map(option => option.textContent);
+    const outcomes = () => fixture.nativeElement.querySelector('ul[aria-live]').textContent;
+    const draft = fixture.nativeElement.querySelector('#send-data-message-draft');
+    picker.val([first, second]).trigger('change');
+    draft.value = 'Draft for both recipients';
+    draft.dispatchEvent(new Event('input'));
+    await component.submitData();
+    await render();
+    picker.select2('open');
+    const search = picker.parent().find('.select2-search__field');
+    search.val('alex').trigger('input');
+    const initialLabels = [
+      'Alex · Researcher, Assistant, Officer · Clinic (first)',
+      'Alex · Researcher, Assistant, Officer · Clinic (second)',
+    ];
+    expect(chips()).to.have.members(initialLabels);
+    expect(results()).to.have.members(initialLabels);
+
+    dataHistory.getDirectory.resetHistory();
+    translate.use('fr');
+    await render();
+    const translatedLabels = [
+      'Alex · Chercheur, Officer · Clinic (first)',
+      'Alex · Chercheur, Officer · Clinic (second)',
+    ];
+    expect(labels()).to.have.members(translatedLabels);
+    expect(chips()).to.have.members(translatedLabels);
+    expect(results()).to.have.members(translatedLabels);
+    expect(search.val()).to.equal('alex');
+    expect(outcomes()).to.include(`${translatedLabels[1]} — messages.data.delivery.submit_error`);
+    expect(dataHistory.getDirectory.called).to.be.false;
+
+    picker.select2('close');
+    dataHistory.getDirectory.resolves([entries[0]]);
+    dataHistory.changes.next();
+    await render();
+    expect(chips()).to.include(`Indisponible : ${translatedLabels[1]}`);
+
+    dataHistory.getDirectory.resetHistory();
+    translate.use('en');
+    await render();
+    const missing = 'Alex · Researcher, Assistant, Officer · Clinic (second)';
+    expect(chips()).to.include(`Unavailable: ${missing}`);
+    expect(outcomes()).to.include(`${missing} — messages.data.delivery.submit_error`);
+    expect(component.outcomes.get(first)).to.equal('waiting');
+    expect(component.outcomes.get(second)).to.equal('submit_error');
+    expect(picker.val()).to.have.members([first, second]);
+    expect(component.dataRecipientIds).to.have.members([first, second]);
+    expect(draft.value).to.equal('Draft for both recipients');
+    expect(dataHistory.getDirectory.called).to.be.false;
   });
 
 });
