@@ -245,6 +245,34 @@ describe('Data messaging contract', () => {
         assert.equal(place_group, place_label);
       });
 
+      it('includes configured role keys and their fallbacks in sync and preserves older entries', async () => {
+        Object.assign(config.getAll(), {
+          locale: 'fr',
+          roles: { custom: { name: 'role.custom' }, officer: { name: 'role.officer' } },
+        });
+        const translate = sinon.stub(config, 'translate');
+        translate.withArgs('role.custom', 'fr').returns('Chercheur');
+        translate.withArgs('role.officer', 'fr').returns('Agent');
+        const pilot = await getAccount('pilot');
+        const site = { ...await getAccount('site'), displayName: 'Alex', roles: ['custom', 'officer', 'unconfigured'] };
+        listAccounts.resolves([pilot, site]);
+        await dataMessaging.rebuildDirectories();
+
+        const directory = save.args.map(([doc]) => doc).find(doc => doc.owner_id === pilot.id);
+        const { role_labels, ...legacyEntry } = directory.entries[0];
+        assert.deepEqual(role_labels, [
+          { key: 'role.custom', fallback: 'Chercheur' },
+          { key: 'role.officer', fallback: 'Agent' },
+        ]);
+        assert.equal(legacyEntry.role_label, 'Chercheur, Agent');
+        const get = sinon.stub(db.dataMessaging, 'get').withArgs(directory._id).resolves(directory);
+        sinon.stub(db.dataMessaging, 'changes').resolves({ results: [], last_seq: '1-test' });
+        assert.deepEqual((await dataMessaging.getSyncPage(pilot.id, '0')).directory, directory.entries);
+
+        get.resolves({ ...directory, entries: [legacyEntry] });
+        assert.deepEqual((await dataMessaging.getSyncPage(pilot.id, '0')).directory, [legacyEntry]);
+      });
+
       it('omits the display place if the assigned pilot root has a parent outside the pilot', async () => {
         getSettings.returns({ enabled: true, pilot_root_place_ids: ['hub'] });
         config.getAll().data_messaging = { directory_parent_place_types: ['hub'] };

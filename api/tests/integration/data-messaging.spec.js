@@ -492,12 +492,14 @@ describe('Dedicated data messaging storage', () => {
           account_id: accountId(recipient),
           display_name: 'Alex',
           role_label: 'Coordinator',
+          role_labels: [{ key: 'Coordinator', fallback: 'Coordinator' }],
           place_label: 'Pilot region',
         },
         {
           account_id: accountId(unrelated),
           display_name: 'Alex',
           role_label: 'Coordinator',
+          role_labels: [{ key: 'Coordinator', fallback: 'Coordinator' }],
           place_label: 'Pilot zone',
         },
       ]);
@@ -510,9 +512,10 @@ describe('Dedicated data messaging storage', () => {
       config.set({ ...settings, roles, data_messaging: enabled });
       await dataMessaging.rebuildDirectories();
       const relabelled = (await sync(api, sender)).directory;
+      const supervisor = { role_label: 'Supervisor', role_labels: [{ key: 'Supervisor', fallback: 'Supervisor' }] };
       assert.deepEqual(relabelled, [
-        { ...initial.directory[0], role_label: 'Supervisor' },
-        { ...initial.directory[1], role_label: 'Supervisor', place_label: 'Renamed zone' },
+        { ...initial.directory[0], ...supervisor },
+        { ...initial.directory[1], ...supervisor, place_label: 'Renamed zone' },
       ]);
 
       const login = await db.users.get(accountId(unrelated));

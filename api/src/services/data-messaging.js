@@ -153,7 +153,7 @@ const getDirectoryEntries = async (pilotRoots, settings, watchPlace) => {
     const roleLabels = account.roles
       .map(role => settings.roles?.[role]?.name)
       .filter(Boolean)
-      .map(name => config.translate(name, settings.locale || 'en'));
+      .map(key => ({ key, fallback: config.translate(key, settings.locale || 'en') }));
     const names = [...placeLabels];
     if (parentPlaceTypes.size) {
       names.sort((a, b) => a.localeCompare(b));
@@ -162,7 +162,8 @@ const getDirectoryEntries = async (pilotRoots, settings, watchPlace) => {
     entries.set(account.id, {
       account_id: account.id,
       display_name: account.displayName,
-      role_label: [...new Set(roleLabels)].join(', '),
+      role_label: [...new Set(roleLabels.map(({ fallback }) => fallback))].join(', '),
+      role_labels: roleLabels,
       place_label: placeLabel,
       ...(parentPlaceTypes.size && placeLabel && { place_group: placeLabel }),
     });
@@ -288,8 +289,9 @@ const getDirectory = async accountId => {
   if (doc?.type !== DIRECTORY_TYPE || doc.owner_id !== accountId || !Array.isArray(doc.entries)) {
     return null;
   }
-  return doc.entries.map(({ account_id, display_name, role_label, place_label, place_group }) => ({
+  return doc.entries.map(({ account_id, display_name, role_label, role_labels, place_label, place_group }) => ({
     account_id, display_name, role_label, place_label,
+    ...(Array.isArray(role_labels) && { role_labels }),
     ...(typeof place_group === 'string' && { place_group }),
   }));
 };
