@@ -29,12 +29,16 @@ const NETWORK_PRESETS = {
 let cdpSession;
 
 const getSession = async () => {
-  // A session reload (browser.reloadSession / full navigation) detaches the CDP session; rebuild it.
   if (cdpSession && cdpSession.connection()) {
     return cdpSession;
   }
   const puppeteer = await browser.getPuppeteer();
-  const [page] = await puppeteer.pages();
+  const url = await browser.getUrl();
+  // Chrome can expose its WebDriver BiDi mapper ahead of the application tab.
+  const page = (await puppeteer.pages()).find(candidate => candidate.url() === url);
+  if (!page) {
+    throw new Error(`No Chrome tab found for the current WebDriver URL: ${url}`);
+  }
   cdpSession = await page.target().createCDPSession();
   await cdpSession.send('Network.enable');
   return cdpSession;

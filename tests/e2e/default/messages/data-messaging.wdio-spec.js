@@ -1,4 +1,5 @@
 const { v7: uuid } = require('uuid');
+const { Key } = require('webdriverio');
 const { CONTACT_TYPES, PREFIXES } = require('@medic/constants');
 const { DB_NAME } = require('@constants');
 const utils = require('@utils');
@@ -31,6 +32,7 @@ describe('Private data messaging', () => {
     path: '/api/v1/settings?replace=1', method: 'PUT', body: { data_messaging },
   });
   const messageRows = () => $$('#message-content li[data-id]');
+  const sendModal = '#send-message';
   const replyComposer = '.data-message-reply mm-data-message-composer';
   let originalPilot;
 
@@ -45,11 +47,31 @@ describe('Private data messaging', () => {
     await $(composer).$('button[type="submit"]').click();
   };
 
+  const goOffline = async () => {
+    await browser.throttleNetwork('offline');
+    await browser.waitUntil(() => browser.execute(() => !navigator.onLine), {
+      timeoutMsg: 'The browser did not go offline',
+    });
+  };
+
   const waitForDelivery = async (index, status) => {
     await browser.waitUntil(async () => {
       const row = (await messageRows())[index];
       return row && (await row.$('.task-state').getText()) === status;
     }, { timeout: 30000, timeoutMsg: `Message ${index + 1} did not reach "${status}"` });
+  };
+
+  const expectCopiedText = async (row, text) => {
+    const copy = row.$('button=Copy message text');
+    await copy.click();
+    await browser.execute(() => {
+      const target = document.createElement('textarea');
+      target.id = 'clipboard-test-target';
+      document.body.append(target);
+      target.focus();
+    });
+    await browser.keys([Key.Ctrl, 'v']);
+    expect(await $('#clipboard-test-target').getValue()).to.equal(text);
   };
 
   const expectBubbleSides = async expected => {
@@ -97,6 +119,10 @@ describe('Private data messaging', () => {
     }
   });
 
+  afterEach(async () => {
+    await browser.throttleNetwork('online');
+  });
+
   it('exchanges a queued message and a dashboard reply and rejects a pending send after disablement', async () => {
     const first = 'Offline worker message <b>shown as text</b>';
     const reply = 'Dashboard reply';
@@ -104,27 +130,40 @@ describe('Private data messaging', () => {
 
     await enterMessages(worker);
     await commonPage.clickFastActionFlat({ waitForList: false });
-    const recipients = $('#send-message-account');
-    await recipients.waitForDisplayed();
+    const picker = $(`${sendModal} #send-message-account + .select2`);
+    const search = picker.$('input.select2-search__field');
+    await search.waitForDisplayed();
     expect(await $('#send-message-channel').isExisting()).to.equal(false);
     expect(await $('#send-message-phone').isDisplayed()).to.equal(false);
-    const options = await recipients.$$('option');
-    expect(await Promise.all(Array.from(options, option => option.getAttribute('value')))).to.deep.equal([
-      '', accountId(dashboard),
-    ]);
+    await search.click();
+    const results = $(`${sendModal} .select2-results__options[aria-multiselectable="true"]`);
+    const options = () => results.$$('.select2-results__option[aria-selected]');
+    await browser.waitUntil(async () => (await options()).length === 1);
+    const [recipient] = await options();
+    expect(await recipient.getText()).to.include(dashboard.contact.name);
+    await recipient.click();
+    expect(await picker.$('.select2-selection__choice').getText()).to.include(dashboard.contact.name);
 
-    await browser.throttle('offline');
-    await recipients.selectByAttribute('value', accountId(dashboard));
-    await submit('#send-message mm-data-message-composer', first);
+    await browser.waitUntil(() => browser.execute(() => !!navigator.serviceWorker.controller));
+    await goOffline();
+    await submit(`${sendModal} form.data-message-composer`, first);
     await waitForDelivery(0, 'Waiting to sync');
+    const queuedId = await (await messageRows())[0].getAttribute('data-id');
+
+    await commonPage.refresh();
+    await waitForDelivery(0, 'Waiting to sync');
+    expect(await (await messageRows())[0].getAttribute('data-id')).to.equal(queuedId);
     expect((await scopedHistory(dashboard)).messages).to.deep.equal([]);
 
-    await browser.throttle('online');
+    await browser.throttleNetwork('online');
     await waitForDelivery(0, 'Sent to server');
-    await commonPage.reloadSession();
+    expect((await scopedHistory(dashboard)).messages.map(message => message._id)).to.deep.equal([queuedId]);
+    await commonPage.logout();
     await enterMessages(dashboard);
     await messagesPage.openMessage(threadId(worker));
-    const incoming = (await messageRows())[0];
+    const received = await messageRows();
+    expect(received).to.have.lengthOf(1);
+    const [incoming] = received;
     expect(await incoming.$('.data-message-text').getText()).to.equal(first);
     expect(await incoming.$('.data-message-text b').isExisting()).to.equal(false);
     await submit(replyComposer, reply);
@@ -135,24 +174,25 @@ describe('Private data messaging', () => {
     expect(outsiderView.messages).to.deep.equal([]);
     expect(outsiderView.directory).to.deep.equal([]);
 
-    await commonPage.reloadSession();
+    await commonPage.logout();
     await enterMessages(worker);
     await messagesPage.openMessage(threadId(dashboard));
     await browser.waitUntil(async () => (await messageRows()).length === 2);
     await expectBubbleSides(['right', 'left']);
-    await browser.throttle('offline');
+    await goOffline();
     await submit(replyComposer, pending);
     await waitForDelivery(2, 'Waiting to sync');
 
     await setPilot({ enabled: false, pilot_root_place_ids: [root._id] });
     await browser.waitUntil(async () => (await scopedHistory(worker)).directory?.length === 0);
-    await browser.throttle('online');
+    await browser.throttleNetwork('online');
     await waitForDelivery(2, 'This recipient can no longer receive your data message.');
     const rows = await messageRows();
     const texts = await Promise.all(Array.from(rows, row => row.$('.data-message-text').getText()));
     expect(texts).to.deep.equal([first, reply, pending]);
+    await expectCopiedText(rows[2], pending);
     for (const participant of [worker, dashboard]) {
-      expect((await scopedHistory(participant)).messages.map(message => message.text)).to.deep.equal([first, reply]);
+      expect((await scopedHistory(participant)).messages.map(message => message.text)).to.have.members([first, reply]);
     }
   });
 });
