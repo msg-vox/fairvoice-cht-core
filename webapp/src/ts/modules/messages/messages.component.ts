@@ -29,6 +29,7 @@ import {
   DataMessagingConversationsService,
 } from '@mm-services/data-messaging-conversations.service';
 import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
+import { DataMessagingLabelsService } from '@mm-services/data-messaging-labels.service';
 import { SessionService } from '@mm-services/session.service';
 
 const DASHBOARD_REFRESH_INTERVAL = 30_000;
@@ -84,6 +85,7 @@ export class MessagesComponent implements OnInit, OnDestroy {
     private readonly dataMessagingConversations: DataMessagingConversationsService,
     private readonly ngZone: NgZone,
     private readonly sessionService: SessionService,
+    protected readonly dataMessagingLabels: DataMessagingLabelsService,
   ) {
     this.globalActions = new GlobalActions(store);
     this.messagesActions = new MessagesActions(store);
@@ -196,7 +198,7 @@ export class MessagesComponent implements OnInit, OnDestroy {
           message: last.doc.text,
           date: last.doc.created_at,
           read: thread.messages.every(message => message.read),
-          description: [thread.recipient?.role_label, thread.recipient?.place_label].filter(Boolean).join(' · '),
+          recipient: thread.recipient,
         };
       });
       const sms = this.conversations.filter(conversation => conversation.type !== DATA_CONVERSATION);

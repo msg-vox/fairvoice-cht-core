@@ -5,7 +5,7 @@ import { MatDialog } from '@angular/material/dialog';
 import { provideMockStore } from '@ngrx/store/testing';
 import { RouterTestingModule } from '@angular/router/testing';
 import { Router } from '@angular/router';
-import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
+import { TranslateFakeLoader, TranslateLoader, TranslateModule, TranslateService } from '@ngx-translate/core';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { of, Subject } from 'rxjs';
@@ -103,7 +103,10 @@ describe('Messages Component', () => {
           { provide: DataMessagingHistoryService, useValue: dataHistory },
           { provide: DataMessagingConversationsService, useValue: dataConversations },
           { provide: LanguagesService, useValue: { get: sinon.stub().resolves([]) } },
-          { provide: LanguageService, useValue: { get: sinon.stub().resolves('en') } },
+          {
+            provide: LanguageService,
+            useValue: { get: sinon.stub().resolves('en'), useDevanagariScript: () => false },
+          },
           { provide: SetLanguageService, useValue: {} },
           { provide: MatBottomSheet, useValue: { open: sinon.stub() } },
           { provide: MatDialog, useValue: { open: sinon.stub() } },
@@ -211,6 +214,45 @@ describe('Messages Component', () => {
     dataHistory.changes.next();
     tick(100);
     expect(navigate.calledOnce).to.be.true;
+  }));
+
+  it('updates cached data inbox labels offline when the language changes', fakeAsync(() => {
+    sinon.stub(navigator, 'onLine').get(() => false);
+    const translate = TestBed.inject(TranslateService);
+    translate.setTranslation('en', { 'role.researcher': 'Researcher', 'role.officer': 'English Officer' });
+    translate.setTranslation('fr', { 'role.researcher': 'Chercheur', 'role.assistant': 'Chercheur' });
+    translate.setDefaultLang('en');
+    translate.use('en');
+    const id = 'org.couchdb.user:peer';
+    const recipient = {
+      account_id: id,
+      display_name: 'Alex',
+      role_label: 'Researcher, Officer, Assistant',
+      role_labels: [
+        { key: 'role.researcher', fallback: 'Researcher' },
+        { key: 'role.officer', fallback: 'Officer' },
+        { key: 'role.assistant', fallback: 'Assistant' },
+      ],
+      place_label: 'Clinic',
+    };
+    dataConversations.getConversations.resolves([{
+      id, type: 'data', name: 'Alex', recipient, messages: [{ read: true, doc: { created_at: 2, text: 'Hello' } }],
+    }]);
+    const setConversations = sinon.spy(MessagesActions.prototype, 'setConversations');
+    dataHistory.changes.next();
+    tick(100);
+    component.conversations = setConversations.lastCall.args[0];
+    fixture.detectChanges();
+
+    const row = fixture.nativeElement.querySelector(`[test-id="data:${id}"]`);
+    expect(row.querySelector('.detail').textContent).to.include('Researcher, English Officer, Assistant · Clinic');
+    const loads = dataConversations.getConversations.callCount;
+    translate.use('fr');
+    fixture.detectChanges();
+    expect(row.querySelector('.detail').textContent).to.include('Chercheur, Officer · Clinic');
+    expect(row.querySelector('h4').textContent).to.equal('Alex');
+    expect(dataConversations.getConversations.callCount).to.equal(loads);
+    expect(dataHistory.refreshOnline.called).to.be.false;
   }));
 
   it('refreshes dashboard history on a timer and reconnect while the inbox is open', fakeAsync(() => {

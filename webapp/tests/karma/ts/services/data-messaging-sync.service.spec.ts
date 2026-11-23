@@ -255,7 +255,13 @@ describe('Data messaging sync', () => {
     const first = incoming('First page');
     const second = incoming('Saved before the error');
     const third = incoming('Write failed');
-    const directory = [{ account_id: recipient, display_name: 'Recipient', place_label: 'Site', role_label: 'CHW' }];
+    const directory = [{
+      account_id: recipient,
+      display_name: 'Recipient',
+      place_label: 'Site',
+      role_label: 'CHW',
+      role_labels: [{ key: 'role.chw', fallback: 'CHW' }],
+    }];
     const put = sinon.stub(db, 'put').callThrough().withArgs(sinon.match({ _id: third._id }));
     put.onFirstCall().rejects(new Error('Write failed'));
     const run = sync.sync();
@@ -268,6 +274,7 @@ describe('Data messaging sync', () => {
     const beforeRetry = await readMessagingCheckpoint(db);
     expect(beforeRetry?.since).to.equal('1-test');
     expect(beforeRetry?.entries).to.deep.equal(directory);
+    expect(await TestBed.inject(DataMessagingDirectoryService).getDirectory()).to.deep.equal(directory);
 
     const retry = sync.sync();
     const repeated = await nextRequest(syncPath);

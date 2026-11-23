@@ -2,7 +2,7 @@ import { ComponentFixture, fakeAsync, TestBed, tick, waitForAsync } from '@angul
 import { Clipboard } from '@angular/cdk/clipboard';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
-import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
+import { TranslateFakeLoader, TranslateLoader, TranslateModule, TranslateService } from '@ngx-translate/core';
 import { RouterTestingModule } from '@angular/router/testing';
 import { By } from '@angular/platform-browser';
 import { provideMockStore } from '@ngrx/store/testing';
@@ -151,6 +151,34 @@ describe('MessagesContentComponent', () => {
     ]);
     fixture.debugElement.query(By.css('[data-id="third"] button')).nativeElement.click();
     expect(copy.calledOnceWithExactly(text)).to.equal(true);
+  });
+
+  it('updates the open conversation header and keeps legacy role labels readable', () => {
+    const translate = TestBed.inject(TranslateService);
+    translate.setTranslation('en', { 'role.supervisor': 'Supervisor' });
+    translate.setTranslation('fr', { 'role.supervisor': 'Responsable', Clinic: 'Clinique', Alex: 'Alexandre' });
+    translate.use('en');
+    const recipient = { role_label: 'Supervisor', place_label: 'Clinic' };
+    component.selectedConversation = {
+      name: 'Alex', type: 'data', recipient,
+      messages: [{ doc: { type: 'data_message', text: 'Hello' } }],
+    };
+    fixture.detectChanges();
+    const header = fixture.nativeElement.querySelector('#message-header');
+    expect(header.querySelector('div').textContent).to.equal('Supervisor · Clinic');
+
+    translate.use('fr');
+    fixture.detectChanges();
+    expect(header.querySelector('div').textContent).to.equal('Supervisor · Clinic');
+    component.selectedConversation.recipient = {
+      ...recipient, role_labels: [{ key: 'role.supervisor', fallback: 'Supervisor' }],
+    };
+    fixture.detectChanges();
+    expect(header.querySelector('div').textContent).to.equal('Responsable · Clinic');
+    expect(header.querySelector('strong').textContent).to.equal('Alex');
+    translate.use('en');
+    fixture.detectChanges();
+    expect(header.querySelector('div').textContent).to.equal('Supervisor · Clinic');
   });
 
   it('opens data routes by full account ID, marks incoming messages read and shows reassignment', fakeAsync(() => {

@@ -18,6 +18,7 @@ export type DataMessagingRecipient = Readonly<{
   account_id: string;
   display_name: string;
   role_label: string;
+  role_labels?: readonly Readonly<{ key: string; fallback: string }>[];
   place_label: string;
   place_group?: string;
 }>;

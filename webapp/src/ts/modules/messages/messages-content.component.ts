@@ -37,6 +37,7 @@ import {
   DataMessagingConversationsService,
 } from '@mm-services/data-messaging-conversations.service';
 import { DataMessagingHistoryService } from '@mm-services/data-messaging-history.service';
+import { DataMessagingLabelsService } from '@mm-services/data-messaging-labels.service';
 
 /**
 *  In this context the URL parameter "id", can be:
@@ -102,6 +103,7 @@ export class MessagesContentComponent implements OnInit, OnDestroy, AfterViewIni
     private ngZone:NgZone,
     private dataHistory: DataMessagingHistoryService,
     private dataConversations: DataMessagingConversationsService,
+    protected readonly dataMessagingLabels: DataMessagingLabelsService,
   ) { }
 
   ngOnInit(): void {

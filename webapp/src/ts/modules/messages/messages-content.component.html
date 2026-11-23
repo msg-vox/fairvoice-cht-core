@@ -24,7 +24,7 @@
         @if (selectedConversation.type === dataConversationType) {
           <strong>{{ selectedConversation.name }}</strong>
           @if (selectedConversation.recipient; as recipient) {
-            <div>{{ recipient.role_label }}{{ recipient.role_label && recipient.place_label ? ' · ' : '' }}{{ recipient.place_label }}</div>
+            <div>{{ dataMessagingLabels.description(recipient) }}</div>
           }
         } @else {
           <mm-sender [message]="selectedConversation.contact"></mm-sender>
