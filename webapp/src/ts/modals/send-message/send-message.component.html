@@ -66,7 +66,7 @@
         </div>
       }
       <div class="form-group">
-        <label for="send-data-message-draft">{{ 'messages.data.draft' | translate }}</label>
+        <label for="send-data-message-draft">{{ 'tasks.0.messages.0.message' | translate }}</label>
         <textarea id="send-data-message-draft" name="dataDraft" class="form-control" rows="3"
                   [(ngModel)]="dataDraft" [readonly]="processing" (ngModelChange)="dataFeedback = undefined"></textarea>
       </div>
